@@ -1,0 +1,127 @@
+# Postcast Assistant — Project Context
+
+## What This Project Is
+
+A mobile tool to help English learners learn more effectively through audio content (podcasts, lessons, etc.). The user brings their own audio files — the tool does not provide any content itself. It processes local audio files from the phone, transcribes them, and provides utilities to capture and review vocabulary, phrases, and sentences.
+
+The user is a Chinese developer learning English who regularly listens to podcasts. The core problem: useful phrases are heard but quickly forgotten. This tool solves that by enabling capture, context preservation, and active review.
+
+## User Background
+
+- Learning English, uses podcasts as a primary resource
+- Has JavaScript experience
+- Working in WSL (Ubuntu 22.04) on Windows 11
+- New to React Native / mobile development
+
+## Tech Stack Decisions
+
+| Decision | Choice | Reason |
+|---|---|---|
+| Framework | React Native + Expo | User has JS experience; Expo simplifies setup and cross-platform support |
+| IDE | VS Code (connected to WSL) | JS familiarity; handles both mobile app and future backend in one window |
+| Language | TypeScript | Better for a larger multi-screen project |
+| State management | Zustand | Lightweight, simple API, works well with React Native |
+| List rendering | FlashList (@shopify/flash-list) | High-performance virtualized lists for long transcripts |
+| Audio | expo-audio | Expo-native audio playback |
+| File picker | expo-document-picker | Pick local audio files from phone storage |
+| Local storage | expo-sqlite | Persist saved vocabulary, phrases, sentences |
+| Transcription (default) | On-device whisper.cpp via whisper.rn | Fully offline, free, no file size limit; word-level timestamps via tokenTimestamps + maxLen=1 |
+| Transcription (fallback) | Groq API — whisper-large-v3 | Optional cloud engine (Settings); fast but needs internet + key, 25 MB limit |
+| Audio decode (offline path) | react-native-audio-api | Decodes mp3/m4a → 16 kHz mono WAV that whisper.cpp requires |
+| AI features | Claude API — Haiku model (called directly from app) | Phrase suggestions; opt-in, online-only, result cached per file in SQLite |
+
+## Scope Decisions
+
+- **V1: Local audio files only.** Users pick audio files already on their phone. No URL parsing, no Bilibili/YouTube extraction. URL support is a future feature.
+- **Offline-first.** Transcription runs on-device by default (whisper.cpp); the app is fully usable in airplane mode. Only optional AI suggestions and one-time Whisper model downloads need internet. See `OFFLINE_SETUP.md`.
+- **No backend.** Any API calls (Groq cloud engine, Claude) are made directly from the mobile app. Acceptable for a personal tool. Never hardcode API keys in source — keys live in SecureStore only.
+- **Dev build required for the offline engine.** whisper.rn and react-native-audio-api are native modules — `npx expo prebuild` + `npx expo run:android` (or EAS). The app still runs in Expo Go with the cloud engine; local-engine modules are lazily require()d.
+- **Android first.** iOS support is available later for free via React Native/Expo.
+
+## Core Workflow
+
+```
+User picks a local audio file from phone
+        ↓
+App sends audio to Whisper API → transcript with word-level timestamps
+        ↓
+User reads transcript (synced with audio playback), taps to save phrases
+        ↓
+Saved items stored locally (SQLite)
+        ↓
+User reviews saved items via flashcard/quiz mode
+```
+
+## Screens & Feature Specifications
+
+### 1. Home Screen
+- List of all added audio files with processing status (pending / transcribing / ready)
+- Tap a file to open Content View
+- Button to pick a new audio file from phone storage
+- Show metadata: title, duration, date added, number of saved phrases
+
+### 2. Content View (High Priority — Performance + Rich Features)
+
+**Technical performance:**
+- Word-level transcript sync — the spoken word highlights in real time as audio plays
+- Virtualized transcript rendering (FlashList) so long transcripts don't freeze the UI
+- Smooth seek and playback with no jank
+
+**Learning features:**
+- Tap-to-seek — tap any word in the transcript to jump audio to that moment
+- Smart phrase selection — tap one word to select, drag to extend selection to a full phrase or sentence
+- Loop a sentence — double-tap a sentence to loop it repeatedly (for shadowing/pronunciation practice)
+- Playback speed control — 0.75x, 1x, 1.25x, 1.5x
+- Save selected phrase/word/sentence with one tap; saves with full sentence context and timestamp
+- AI-suggested phrases — Claude can highlight phrases worth learning at the user's level
+
+### 3. Library Screen (Friendly UI + Rich Functions)
+- All saved vocabulary, phrases, and sentences across all audio files
+- **Rich cards**: each item shows the saved phrase + full surrounding sentence + source file name + timestamp
+- **Filter by type**: words / phrases / full sentences
+- **Search**: find any saved item instantly
+- **Mastery tags**: mark items as New / Learning / Mastered
+- **Sort**: by date added, mastery level
+- Swipe to delete or archive
+
+### 4. Review Screen (Friendly UI + Rich Functions)
+- **Multiple quiz modes**:
+  - Flashcard: show phrase → user recalls meaning
+  - Fill-in-the-blank: show sentence with word removed, user types it
+  - Listen-and-identify: play audio clip, user identifies the phrase
+- **Spaced repetition**: items struggled with appear more frequently
+- **Progress stats**: daily streak, items reviewed today, mastery rate per source file
+- **Play original audio clip** during review (hear native pronunciation in context)
+- Visual progress indicators per item (New → Learning → Mastered)
+
+## Navigation Structure
+
+- **Bottom Tab Navigator**: Home | Library | Review
+- **Stack Navigator**: Home → Content View (pushed on file tap)
+
+## Project Location
+
+- **Working directory**: `/home/daryl/projects/go-podcast-assistant` (WSL Ubuntu-22.04)
+- **Windows path**: `\\wsl.localhost\Ubuntu-22.04\home\daryl\projects\go-podcast-assistant`
+- Node.js v20.20.2 available in WSL
+
+## Current State
+
+- All 4 screens built and functional (Home, Content View, Library, Review)
+- SQLite schema with migrations (v6): audio_files (category_id, last_position), categories, segments, words, saved_items (nullable audio_file_id + ON DELETE SET NULL, clip_uri, source_title, enrichment), suggestion_cache, review_log
+- Data safety: JSON backup export/import (merge-safe, Settings → Data & storage); deleting an audio file keeps its saved items — audio clips are batch-extracted first (dev build; services/clips.ts + services/fileDeletion.ts); stuck 'transcribing' rows auto-recover to 'error' at startup
+- Listening UX: per-file playback position persisted (resume on open, "% listened" on cards); storage management screen (per-file sizes, remove-audio-keep-cards)
+- Review retention: daily local notification reminder (expo-notifications, Settings toggle + time presets); saved items editable (fix Whisper errors) via pencil icon in item detail
+- Categories (folder model): Home is a category overview (user categories + built-in "Uncategorized"); CategoryScreen shows a category's files, imports into that category, multi-select supports move-to-category and delete; deleting a category returns its files to Uncategorized
+- Transcription engine abstraction: on-device whisper.cpp (default) + Groq cloud (optional), selected in Settings
+- Whisper model manager: download/delete tiny.en / base.en / small.en (q5_1) from Hugging Face with progress UI
+- Review modes: flashcard (with audio clip playback), fill-in-the-blank, listen & identify (multiple choice)
+- Library: search, type/mastery filters, sort (newest/oldest/mastery/A–Z)
+- Daily streak + reviewed-today stats via review_log
+- AI phrase suggestions modal (Claude, optional, cached per file)
+
+## Next Steps
+
+1. Run a development build for the offline engine: `npx expo prebuild --platform android` then `npx expo run:android` (see OFFLINE_SETUP.md)
+2. Test on-device transcription end-to-end on a real phone (decode → whisper → word sync accuracy)
+3. Possible future: offline Chinese-English dictionary (ECDICT) for tap-word definitions; export saved items to Anki; URL/podcast-feed import

@@ -1,0 +1,89 @@
+import { replaceTranscript } from '../../db/queries/transcript';
+import { updateAudioFileStatus } from '../../db/queries/audioFiles';
+import { useAudioFilesStore } from '../../store/audioFilesStore';
+import { getSettings } from '../settings';
+import { getApiKeys } from '../config';
+import { transcribeAudio } from '../whisper';
+import { transcribeAudioLocally } from './localWhisper';
+import { log } from '../../utils/logger';
+import { isLocalEngineSupported } from './support';
+
+export { isLocalEngineSupported } from './support';
+
+// ─── Transcription orchestrator ───────────────────────────────────────────────
+// Dispatches to the engine chosen in Settings:
+//   - 'local': whisper.cpp on-device (offline, no API key, no file size limit)
+//   - 'cloud': Groq Whisper API (needs internet + API key, 25 MB limit)
+
+export interface TranscribeOptions {
+  language?: string;
+  fileSizeBytes?: number;
+}
+
+/**
+ * Full transcription pipeline:
+ *   1. Marks the file as 'transcribing'
+ *   2. Runs the configured engine (local whisper.cpp or Groq cloud)
+ *   3. Saves segments and words to SQLite
+ *   4. Marks the file as 'ready'
+ *
+ * On any failure, marks the file as 'error' and re-throws so the caller
+ * can surface it to the user.
+ */
+export async function transcribeAndSave(
+  audioFileId: number,
+  uri: string,
+  options: TranscribeOptions = {}
+): Promise<void> {
+  const { refreshAudioFile, setTranscriptionProgress } = useAudioFilesStore.getState();
+  const settings = await getSettings();
+
+  // The saved setting may say 'local' from a build where the native engine
+  // existed (or vice versa). If it isn't available here — e.g. Expo Go —
+  // fall back to cloud rather than failing.
+  let engine = settings.transcriptionEngine;
+  let fellBack = false;
+  if (engine === 'local' && !isLocalEngineSupported()) {
+    engine = 'cloud';
+    fellBack = true;
+    log.warn('transcription', 'on-device engine not available in this build — falling back to cloud');
+  }
+
+  log.info('transcription', `start id=${audioFileId} engine=${engine}`, { uri });
+  await updateAudioFileStatus(audioFileId, 'transcribing');
+  await refreshAudioFile(audioFileId);
+
+  try {
+    let parsed;
+    if (engine === 'local') {
+      parsed = await transcribeAudioLocally(uri, settings.whisperModel, {
+        language: options.language,
+        onProgress: fraction => setTranscriptionProgress(audioFileId, fraction),
+      });
+    } else {
+      const keys = await getApiKeys();
+      if (!keys?.groqApiKey) {
+        throw new Error(
+          fellBack
+            ? 'On-device transcription needs the development build (Expo Go can\'t run it), and cloud transcription needs a Groq API key. Add a key in Settings to transcribe in Expo Go.'
+            : 'Cloud transcription needs a Groq API key. Add one in Settings, or switch to the On-device engine.'
+        );
+      }
+      parsed = await transcribeAudio(uri, keys.groqApiKey, options);
+    }
+
+    log.info('transcription', `done: ${parsed.segments.length} segments, ${parsed.words.length} words`);
+    await replaceTranscript(audioFileId, parsed);
+
+    await updateAudioFileStatus(audioFileId, 'ready');
+    await refreshAudioFile(audioFileId);
+  } catch (e) {
+    log.error('transcription', `failed id=${audioFileId}`, e instanceof Error ? e : new Error(String(e)));
+    const message = e instanceof Error ? e.message : 'Unknown transcription error';
+    await updateAudioFileStatus(audioFileId, 'error', message);
+    await refreshAudioFile(audioFileId);
+    throw e;
+  } finally {
+    setTranscriptionProgress(audioFileId, null);
+  }
+}

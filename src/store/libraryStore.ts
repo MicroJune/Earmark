@@ -1,0 +1,206 @@
+import { create } from 'zustand';
+import type { SavedItem, SavedItemType, MasteryLevel } from '../types';
+import {
+  getAllSavedItems,
+  insertSavedItem,
+  deleteSavedItem,
+  updateMastery,
+  updateNextReview,
+  updateEnrichment,
+  updateSavedItemText,
+  searchSavedItems,
+} from '../db/queries/savedItems';
+import { generateEnrichment } from '../services/enrichment';
+import { getApiKeys } from '../services/config';
+import { deleteClipFile } from '../services/clips';
+import {
+  incrementPhraseCount,
+  decrementPhraseCount,
+} from '../db/queries/audioFiles';
+import { useAudioFilesStore } from './audioFilesStore';
+
+// ─── Filter ───────────────────────────────────────────────────────────────────
+
+export type LibrarySort = 'newest' | 'oldest' | 'mastery' | 'alpha';
+
+export interface LibraryFilter {
+  type: SavedItemType | 'all';
+  mastery: MasteryLevel | 'all';
+  audioFileId: number | null;
+  searchQuery: string;
+  sortBy: LibrarySort;
+}
+
+const DEFAULT_FILTER: LibraryFilter = {
+  type: 'all',
+  mastery: 'all',
+  audioFileId: null,
+  searchQuery: '',
+  sortBy: 'newest',
+};
+
+const MASTERY_ORDER: Record<MasteryLevel, number> = { new: 0, learning: 1, mastered: 2 };
+
+function applyFilter(items: SavedItem[], filter: LibraryFilter): SavedItem[] {
+  const filtered = items.filter(item => {
+    if (filter.type !== 'all' && item.type !== filter.type) return false;
+    if (filter.mastery !== 'all' && item.mastery !== filter.mastery) return false;
+    if (filter.audioFileId !== null && item.audioFileId !== filter.audioFileId) return false;
+    if (filter.searchQuery) {
+      const q = filter.searchQuery.toLowerCase();
+      const match =
+        item.text.toLowerCase().includes(q) ||
+        item.contextSentence.toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    return true;
+  });
+
+  switch (filter.sortBy) {
+    case 'oldest':  return filtered.sort((a, b) => a.dateAdded - b.dateAdded);
+    case 'mastery': return filtered.sort((a, b) =>
+      MASTERY_ORDER[a.mastery] - MASTERY_ORDER[b.mastery] || b.dateAdded - a.dateAdded);
+    case 'alpha':   return filtered.sort((a, b) => a.text.localeCompare(b.text));
+    case 'newest':
+    default:        return filtered.sort((a, b) => b.dateAdded - a.dateAdded);
+  }
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+
+interface LibraryStore {
+  items: SavedItem[];
+  filteredItems: SavedItem[];
+  filter: LibraryFilter;
+  isLoading: boolean;
+  error: string | null;
+
+  loadItems: () => Promise<void>;
+  addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle'>) => Promise<number>;
+  removeItem: (item: SavedItem) => Promise<void>;
+  updateMastery: (id: number, mastery: MasteryLevel) => Promise<void>;
+  editItemText: (id: number, text: string, contextSentence: string) => Promise<void>;
+  scheduleReview: (id: number, nextReview: number | null) => Promise<void>;
+  enrichItem: (id: number) => Promise<SavedItem>;
+  setFilter: (partial: Partial<LibraryFilter>) => void;
+  resetFilter: () => void;
+}
+
+export const useLibraryStore = create<LibraryStore>((set, get) => ({
+  items: [],
+  filteredItems: [],
+  filter: DEFAULT_FILTER,
+  isLoading: false,
+  error: null,
+
+  loadItems: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const items = await getAllSavedItems();
+      set(state => ({
+        items,
+        filteredItems: applyFilter(items, state.filter),
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  addItem: async (data) => {
+    // Denormalize the source title so it outlives the audio file row
+    const sourceTitle = data.audioFileId !== null
+      ? useAudioFilesStore.getState().audioFiles.find(f => f.id === data.audioFileId)?.title ?? null
+      : null;
+    const id = await insertSavedItem({ ...data, sourceTitle });
+    if (data.audioFileId !== null) {
+      await incrementPhraseCount(data.audioFileId);
+    }
+    await get().loadItems();
+    if (data.audioFileId !== null) {
+      await useAudioFilesStore.getState().refreshAudioFile(data.audioFileId);
+    }
+
+    // Best-effort: generate AI learning notes in the background while we're
+    // likely online. Silently skipped when offline or no API key is set —
+    // the user can always generate manually from the item's detail view.
+    void get().enrichItem(id).catch(() => {});
+
+    return id;
+  },
+
+  removeItem: async (item) => {
+    await deleteSavedItem(item.id);
+    if (item.clipUri) deleteClipFile(item.clipUri);
+    if (item.audioFileId !== null) {
+      await decrementPhraseCount(item.audioFileId);
+      await useAudioFilesStore.getState().refreshAudioFile(item.audioFileId);
+    }
+    set(state => {
+      const items = state.items.filter(i => i.id !== item.id);
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  updateMastery: async (id, mastery) => {
+    await updateMastery(id, mastery);
+    set(state => {
+      const items = state.items.map(i => i.id === id ? { ...i, mastery } : i);
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  editItemText: async (id, text, contextSentence) => {
+    await updateSavedItemText(id, text, contextSentence);
+    set(state => {
+      const items = state.items.map(i =>
+        i.id === id ? { ...i, text, contextSentence } : i
+      );
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  scheduleReview: async (id, nextReview) => {
+    await updateNextReview(id, nextReview);
+    set(state => {
+      const items = state.items.map(i => i.id === id ? { ...i, nextReview } : i);
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  enrichItem: async (id) => {
+    const item = get().items.find(i => i.id === id);
+    if (!item) throw new Error('Item not found');
+    if (item.enrichment) return item; // already generated — cached forever
+
+    const keys = await getApiKeys();
+    if (!keys?.anthropicApiKey) {
+      throw new Error('Learning notes need an Anthropic API key — add one in Settings (Home → gear icon).');
+    }
+
+    const enrichment = await generateEnrichment(item, keys.anthropicApiKey);
+    await updateEnrichment(id, enrichment);
+
+    const updated = { ...item, enrichment };
+    set(state => {
+      const items = state.items.map(i => (i.id === id ? updated : i));
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+    return updated;
+  },
+
+  setFilter: (partial) => {
+    set(state => {
+      const filter = { ...state.filter, ...partial };
+      return { filter, filteredItems: applyFilter(state.items, filter) };
+    });
+  },
+
+  resetFilter: () => {
+    set(state => ({
+      filter: DEFAULT_FILTER,
+      filteredItems: applyFilter(state.items, DEFAULT_FILTER),
+    }));
+  },
+}));
