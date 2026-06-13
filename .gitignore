@@ -30,6 +30,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Windows "downloaded from internet" alternate-data-stream markers (appear as files under WSL)
+*:Zone.Identifier
+
 # local env files
 .env*.local
 
