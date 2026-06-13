@@ -133,9 +133,9 @@ function AudioFileCard({
           <Text style={styles.cardError} numberOfLines={2}>{item.errorMessage}</Text>
         )}
         {item.status === 'error' && (
-          <Text style={styles.cardRetryHint}>点击重试转写</Text>
+          <Text style={styles.cardRetryHint}>{item.uri ? '点击重试转写' : '点击重新导入音频'}</Text>
         )}
-        {item.status === 'pending' && (
+        {item.status === 'pending' && item.uri !== '' && (
           <Text style={styles.cardRetryHint}>点击开始转写</Text>
         )}
       </View>
@@ -320,7 +320,9 @@ export default function CategoryScreen({ navigation, route }: Props) {
     if (!(await ensureEngineReady())) return;
     for (const id of ids) {
       const file = useAudioFilesStore.getState().audioFiles.find(f => f.id === id);
-      if (!file || (file.status !== 'pending' && file.status !== 'error')) continue;
+      // Skip backup-restored placeholders (empty uri) — they need the audio
+      // re-imported first, not a transcription attempt on nothing.
+      if (!file || !file.uri || (file.status !== 'pending' && file.status !== 'error')) continue;
       try {
         await transcribeAndSave(id, file.uri, { language: 'en' });
       } catch {
@@ -332,11 +334,11 @@ export default function CategoryScreen({ navigation, route }: Props) {
   const handleTranscribeSelected = useCallback(() => {
     const ids = [...selectedIds].filter(id => {
       const f = useAudioFilesStore.getState().audioFiles.find(x => x.id === id);
-      return f && (f.status === 'pending' || f.status === 'error');
+      return f && !!f.uri && (f.status === 'pending' || f.status === 'error');
     });
     exitSelection();
     if (ids.length === 0) {
-      Alert.alert('没有可转写的文件', '所选文件都已经转写完成或正在转写。');
+      Alert.alert('没有可转写的文件', '所选文件都已转写完成、正在转写,或需要先重新导入音频。');
       return;
     }
     void runTranscriptionQueue(ids);
@@ -396,10 +398,14 @@ export default function CategoryScreen({ navigation, route }: Props) {
       });
     } else if (file.status === 'ready') {
       navigation.navigate('ContentView', { audioFileId: file.id });
+    } else if (!file.uri) {
+      // Backup-restored placeholder: its audio isn't on this device yet.
+      // Re-importing the same-titled file re-links it (see insertAudioFile).
+      void handleAddFiles();
     } else if (file.status === 'pending' || file.status === 'error') {
       void runTranscriptionQueue([file.id]);
     }
-  }, [isSelecting, navigation, runTranscriptionQueue]);
+  }, [isSelecting, navigation, runTranscriptionQueue, handleAddFiles]);
 
   const handleCardLongPress = useCallback((id: number) => {
     setSelectedIds(prev => {

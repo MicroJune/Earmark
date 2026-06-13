@@ -36,6 +36,21 @@ export async function transcribeAndSave(
   options: TranscribeOptions = {}
 ): Promise<void> {
   const { refreshAudioFile, setTranscriptionProgress } = useAudioFilesStore.getState();
+
+  // A backup-restored placeholder has no audio binary (empty uri). Don't try to
+  // decode nothing — guide the user to re-import the audio (which re-links to
+  // this row and its restored transcript). Belt-and-suspenders: callers also
+  // route empty-uri files to re-import rather than here.
+  if (!uri) {
+    await updateAudioFileStatus(
+      audioFileId,
+      'error',
+      'Audio file is missing — re-import it (same name) to enable playback.'
+    );
+    await refreshAudioFile(audioFileId);
+    return;
+  }
+
   const settings = await getSettings();
 
   // The saved setting may say 'local' from a build where the native engine

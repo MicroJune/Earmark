@@ -40,13 +40,13 @@ export default function DataPage({ exporting, importing, onExport, onImport }: P
   return (
     <View>
       <PageIntro>
-        学习数据(短语、分类、复习记录)只保存在这台手机上 — 建议定期导出备份,防止换机或误删丢失。
+        学习数据(短语、分类、复习记录、转写文本)只保存在这台手机上 — 建议定期导出备份,防止换机或误删丢失。备份文件不含音频本体,所以体积小、好传输。
       </PageIntro>
 
       <DataRow
         icon="download-outline"
         title="导出备份"
-        subtitle="生成一个 JSON 文件,可存到网盘 / 微信文件传输助手"
+        subtitle="生成一个 JSON 文件(含转写,不含音频),可存到网盘 / 微信文件传输助手"
         busy={exporting}
         onPress={onExport}
       />
@@ -57,6 +57,10 @@ export default function DataPage({ exporting, importing, onExport, onImport }: P
         busy={importing}
         onPress={onImport}
       />
+
+      <Text style={styles.migrateHint}>
+        换新手机:先在新机「导入备份」,单词、笔记、复习进度、转写会全部恢复;再把原音频文件重新导入(同名即可),即可自动重连,无需重新转写,原音播放和跟读照常使用。
+      </Text>
       <DataRow
         icon="server-outline"
         title="存储空间管理"
@@ -74,4 +78,5 @@ const styles = StyleSheet.create({
   row:         { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 8 },
   rowTitle:    { fontSize: 14, fontWeight: '600', color: COLORS.text },
   rowSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  migrateHint: { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18, marginTop: 12, paddingHorizontal: 2 },
 });
