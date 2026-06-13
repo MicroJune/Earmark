@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import type { LoadedTranscript, PlaybackRate, Segment } from '../types';
+
+export type RepeatMode = 'off' | 'one' | 'all';
 import { getWordsByAudioFile } from '../db/queries/words';
 import { getSegmentsByAudioFile } from '../db/queries/segments';
 import { findActiveWordIndex } from '../utils/binarySearch';
@@ -32,6 +34,10 @@ interface PlaybackStore {
   // Loop — double-tap a segment to loop it (for shadowing/pronunciation practice)
   loopSegment: Segment | null;
 
+  // Repeat mode for whole-file playback:
+  //   'off' — stop at end; 'one' — loop this file; 'all' — play next file in category
+  repeatMode: RepeatMode;
+
   // Selection — tap/drag to select a range of words for saving
   selectionStart: number | null;  // word index (always <= selectionEnd)
   selectionEnd: number | null;    // word index
@@ -45,6 +51,7 @@ interface PlaybackStore {
   seekToWord: (wordIndex: number) => void;  // optimistic: updates highlight before audio catches up
   setPlaybackRate: (rate: PlaybackRate) => void;
   setLoopSegment: (segment: Segment | null) => void;
+  setRepeatMode: (mode: RepeatMode) => void;
   setSelection: (start: number, end: number) => void;
   extendSelection: (wordIndex: number) => void; // drag to extend from existing selectionStart
   clearSelection: () => void;
@@ -58,6 +65,7 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   activeWordIndex: -1,
   playbackRate: 1,
   loopSegment: null,
+  repeatMode: 'off',
   selectionStart: null,
   selectionEnd: null,
   selectionAnchor: null,
@@ -120,6 +128,8 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   setPlaybackRate: (rate) => set({ playbackRate: rate }),
 
   setLoopSegment: (segment) => set({ loopSegment: segment }),
+
+  setRepeatMode: (mode) => set({ repeatMode: mode }),
 
   setSelection: (start, end) => set({
     selectionStart: Math.min(start, end),

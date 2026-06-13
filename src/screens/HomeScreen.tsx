@@ -6,7 +6,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList, Category } from '../types';
 import { COLORS } from '../constants/colors';
 import { useAudioFilesStore } from '../store/audioFilesStore';
-import LogViewerModal from '../components/LogViewerModal';
 import SettingsModal from '../components/SettingsModal';
 import CategoryNameModal from '../components/CategoryNameModal';
 
@@ -52,7 +51,6 @@ function CategoryCard({
 export default function HomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [logsVisible, setLogsVisible] = useState(false);
   const [nameModal, setNameModal] = useState<{ mode: 'create' } | { mode: 'rename'; category: Category } | null>(null);
   const { audioFiles, categories, loadAudioFiles, loadCategories } = useAudioFilesStore();
 
@@ -65,14 +63,9 @@ export default function HomeScreen({ navigation }: Props) {
     navigation.setOptions({
       headerTitle: 'My Podcasts',
       headerRight: () => (
-        <View style={{ flexDirection: 'row', gap: 4 }}>
-          <Pressable onPress={() => setLogsVisible(true)} style={{ padding: 4 }}>
-            <Ionicons name="terminal-outline" size={22} color={COLORS.textSecondary} />
-          </Pressable>
-          <Pressable onPress={() => setSettingsVisible(true)} style={{ padding: 4, marginRight: 4 }}>
-            <Ionicons name="settings-outline" size={22} color={COLORS.primary} />
-          </Pressable>
-        </View>
+        <Pressable onPress={() => setSettingsVisible(true)} style={{ padding: 4, marginRight: 4 }}>
+          <Ionicons name="settings-outline" size={22} color={COLORS.primary} />
+        </Pressable>
       ),
     });
   }, [navigation]);
@@ -169,7 +162,6 @@ export default function HomeScreen({ navigation }: Props) {
       </Pressable>
 
       <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} />
-      <LogViewerModal visible={logsVisible} onClose={() => setLogsVisible(false)} />
       <CategoryNameModal
         visible={nameModal !== null}
         title={nameModal?.mode === 'rename' ? 'Rename Category' : 'New Category'}

@@ -98,6 +98,14 @@ const migrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_saved_mastery       ON saved_items(mastery);
     `,
   },
+  {
+    version: 7,
+    up: `
+      -- Manual ("custom") ordering of files within a category.
+      -- NULL = never manually positioned; sorts after positioned files.
+      ALTER TABLE audio_files ADD COLUMN sort_order INTEGER;
+    `,
+  },
 ];
 
 export async function runMigrations(db: SQLiteDatabase): Promise<void> {

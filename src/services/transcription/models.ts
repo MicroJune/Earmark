@@ -6,22 +6,22 @@ import {
   createDownloadResumable,
 } from 'expo-file-system/legacy';
 import type { WhisperModelName } from '../settings';
+import { getModelMirrorBase } from '../settings';
 import { log } from '../../utils/logger';
 
 // ─── Whisper model registry ───────────────────────────────────────────────────
 // Quantized (q5_1) ggml models from the official whisper.cpp repo on Hugging Face.
 // q5_1 cuts download size roughly in half with negligible accuracy loss on phones.
+// The download URL is built from the active mirror at download time (see
+// getModelMirrorBase) so mainland-China users can fetch via hf-mirror.com.
 
 export interface WhisperModelInfo {
   name: WhisperModelName;
   label: string;
   description: string;
   fileName: string;
-  url: string;
   sizeMB: number; // approximate download size, for UI display
 }
-
-const HF_BASE = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 export const WHISPER_MODELS: WhisperModelInfo[] = [
   {
@@ -29,7 +29,6 @@ export const WHISPER_MODELS: WhisperModelInfo[] = [
     label: 'Tiny (English)',
     description: 'Fastest, lowest accuracy. Good for older phones.',
     fileName: 'ggml-tiny.en-q5_1.bin',
-    url: `${HF_BASE}/ggml-tiny.en-q5_1.bin`,
     sizeMB: 32,
   },
   {
@@ -37,7 +36,6 @@ export const WHISPER_MODELS: WhisperModelInfo[] = [
     label: 'Base (English) — recommended',
     description: 'Good balance of speed and accuracy for podcasts.',
     fileName: 'ggml-base.en-q5_1.bin',
-    url: `${HF_BASE}/ggml-base.en-q5_1.bin`,
     sizeMB: 60,
   },
   {
@@ -45,7 +43,6 @@ export const WHISPER_MODELS: WhisperModelInfo[] = [
     label: 'Small (English)',
     description: 'Best accuracy, slower. Needs a recent phone.',
     fileName: 'ggml-small.en-q5_1.bin',
-    url: `${HF_BASE}/ggml-small.en-q5_1.bin`,
     sizeMB: 190,
   },
 ];
@@ -91,9 +88,10 @@ export async function downloadModel(
 
   const info = getModelInfo(name);
   const dest = getModelPath(name);
-  log.info('models', `downloading ${info.fileName} (${info.sizeMB} MB)`);
+  const url = `${await getModelMirrorBase()}/${info.fileName}`;
+  log.info('models', `downloading ${info.fileName} (${info.sizeMB} MB) from ${url}`);
 
-  const download = createDownloadResumable(info.url, dest, {}, progress => {
+  const download = createDownloadResumable(url, dest, {}, progress => {
     if (progress.totalBytesExpectedToWrite > 0) {
       onProgress?.(progress.totalBytesWritten / progress.totalBytesExpectedToWrite);
     }

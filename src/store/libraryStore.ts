@@ -11,7 +11,7 @@ import {
   searchSavedItems,
 } from '../db/queries/savedItems';
 import { generateEnrichment } from '../services/enrichment';
-import { getApiKeys } from '../services/config';
+import { getSettings } from '../services/settings';
 import { deleteClipFile } from '../services/clips';
 import {
   incrementPhraseCount,
@@ -123,9 +123,11 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     }
 
     // Best-effort: generate AI learning notes in the background while we're
-    // likely online. Silently skipped when offline or no API key is set —
-    // the user can always generate manually from the item's detail view.
-    void get().enrichItem(id).catch(() => {});
+    // likely online. Skipped when AI notes are disabled in Settings, offline
+    // or no API key — the user can always generate manually from item detail.
+    void getSettings().then(s => {
+      if (s.aiEnabled) return get().enrichItem(id);
+    }).catch(() => {});
 
     return id;
   },
@@ -174,12 +176,9 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     if (!item) throw new Error('Item not found');
     if (item.enrichment) return item; // already generated — cached forever
 
-    const keys = await getApiKeys();
-    if (!keys?.anthropicApiKey) {
-      throw new Error('Learning notes need an Anthropic API key — add one in Settings (Home → gear icon).');
-    }
-
-    const enrichment = await generateEnrichment(item, keys.anthropicApiKey);
+    // Provider + key resolution happens inside generateEnrichment → ai.ts,
+    // which throws a clear message if no key is configured.
+    const enrichment = await generateEnrichment(item);
     await updateEnrichment(id, enrichment);
 
     const updated = { ...item, enrichment };

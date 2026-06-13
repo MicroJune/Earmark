@@ -13,6 +13,7 @@ export interface AudioFile {
   errorMessage?: string; // populated when status === 'error'
   categoryId: number | null; // null = uncategorized
   lastPosition: number;  // seconds — where the user stopped listening
+  sortOrder: number | null; // manual position within its category; null = unplaced
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ export interface PhraseSuggestion {
   contextSentence: string;
   startTime: number;
   endTime: number;
-  reason: string;          // why Claude thinks this phrase is worth learning
+  reason: string;          // why the AI thinks this phrase is worth learning
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
@@ -147,6 +148,7 @@ export interface TranscriptionResult {
 }
 
 export interface AppConfig {
-  groqApiKey: string;
-  anthropicApiKey: string;
+  volcApiKey: string;
+  arkApiKey: string;
+  deepseekApiKey: string;
 }

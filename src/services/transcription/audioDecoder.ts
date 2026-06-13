@@ -1,5 +1,6 @@
 import { File, Directory, Paths } from 'expo-file-system';
 import { log } from '../../utils/logger';
+import { isLocalEngineSupported } from './support';
 
 // ─── Audio decoding for on-device Whisper ─────────────────────────────────────
 // whisper.cpp only accepts 16 kHz mono 16-bit WAV. Podcasts are mp3/m4a, so we
@@ -19,6 +20,14 @@ export class AudioDecodeError extends Error {
 }
 
 function loadAudioApi(): any {
+  // Short-circuit BEFORE require(): in Expo Go a failed native install
+  // reports a fatal LogBox error that escapes try/catch.
+  if (!isLocalEngineSupported()) {
+    throw new AudioDecodeError(
+      'On-device transcription is not available in Expo Go — it needs the development build of this app ' +
+      '(see OFFLINE_SETUP.md). Until then, switch to the Cloud engine in Settings.'
+    );
+  }
   let mod: any = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -111,7 +120,9 @@ export async function decodeToWhisperWav(uri: string): Promise<string> {
   log.info('audioDecoder', `decoding ${uri}`);
   const ctx = new AudioContext({ sampleRate: WHISPER_SAMPLE_RATE });
   try {
-    const audioBuffer = await ctx.decodeAudioDataSource(uri);
+    // react-native-audio-api 0.12: decodeAudioData(uri) decodes a local
+    // file:// path and resamples to the context's sampleRate (16 kHz here).
+    const audioBuffer = await ctx.decodeAudioData(uri);
     if (!audioBuffer) throw new AudioDecodeError('Could not decode audio file');
 
     const channels: Float32Array[] = [];

@@ -4,12 +4,15 @@ import {
   ActivityIndicator, Alert, StyleSheet, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/colors';
 import type { SavedItem, MasteryLevel } from '../types';
 import { useLibraryStore } from '../store/libraryStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { speak, speakSlowly, stopSpeaking } from '../services/tts';
-import { playSavedItemAudio } from '../services/audio';
+import { toggleSavedItemPreview, stopPreview } from '../services/audio';
+import { hasPronunciationAudio, playPronunciationText, playSavedItemPronunciation } from '../services/pronunciation';
+import { usePreviewStore } from '../store/previewStore';
 import { lookupWord, TAG_LABELS } from '../services/dictionary';
 
 const MASTERY_COLOR: Record<MasteryLevel, string> = {
@@ -28,6 +31,7 @@ export default function ItemDetailModal({
   item: SavedItem | null;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const enrichItem = useLibraryStore(s => s.enrichItem);
   const editItemText = useLibraryStore(s => s.editItemText);
   // Subscribe to the live item so the modal re-renders when enrichment lands
@@ -36,7 +40,8 @@ export default function ItemDetailModal({
     s.audioFiles.find(f => f.id === item?.audioFileId)
   );
   const [enriching, setEnriching] = useState(false);
-  const [playingClip, setPlayingClip] = useState(false);
+  const previewKey = `lib-${item?.id}`;
+  const previewActive = usePreviewStore(s => s.activeKey === previewKey ? s.status : 'idle');
   // Edit mode — fix whisper transcription mistakes so they don't get drilled in
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -46,20 +51,21 @@ export default function ItemDetailModal({
     () => (item ? lookupWord(item.text) : null),
     [item?.text]
   );
+  const hasStandardAudio = useMemo(
+    () => (item ? hasPronunciationAudio(item.text) : false),
+    [item?.text]
+  );
 
   if (!item) return null;
   const live = liveItem ?? item;
   const enrichment = live.enrichment;
 
   const handleHearOriginal = async () => {
-    setPlayingClip(true);
     try {
-      // Prefers the item's extracted clip; falls back to the source file
-      await playSavedItemAudio(live);
+      // Toggle: tap plays the clip, tap again pauses — never overlaps
+      await toggleSavedItemPreview(previewKey, live);
     } catch (e) {
       Alert.alert('Playback failed', e instanceof Error ? e.message : 'Could not play the clip');
-    } finally {
-      setPlayingClip(false);
     }
   };
 
@@ -76,6 +82,7 @@ export default function ItemDetailModal({
 
   const handleClose = () => {
     stopSpeaking();
+    stopPreview();
     setEditing(false);
     onClose();
   };
@@ -103,7 +110,9 @@ export default function ItemDetailModal({
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
-      <View style={styles.modal}>
+      {/* Keep the header clear of the status bar — Android edge-to-edge
+          renders Modal content underneath it otherwise */}
+      <View style={[styles.modal, { paddingTop: Math.max(insets.top, 16) + 8 }]}>
         <View style={styles.header}>
           <View style={styles.typeBadge}>
             <Text style={styles.typeBadgeText}>{live.type}</Text>
@@ -159,7 +168,7 @@ export default function ItemDetailModal({
           <Text style={styles.itemText}>{live.text}</Text>
 
           <View style={styles.speakRow}>
-            <Pressable style={styles.speakBtn} onPress={() => speak(live.text)}>
+            <Pressable style={styles.speakBtn} onPress={() => playSavedItemPronunciation(`pron-${live.id}`, live)}>
               <Ionicons name="volume-high" size={16} color="#fff" />
               <Text style={styles.speakBtnText}>Speak</Text>
             </Pressable>
@@ -167,11 +176,17 @@ export default function ItemDetailModal({
               <Ionicons name="volume-low" size={16} color={COLORS.primary} />
               <Text style={styles.speakBtnOutlineText}>Slow</Text>
             </Pressable>
-            <Pressable style={styles.speakBtnOutline} onPress={handleHearOriginal} disabled={playingClip}>
-              {playingClip
+            <Pressable style={styles.speakBtnOutline} onPress={handleHearOriginal}>
+              {previewActive === 'loading'
                 ? <ActivityIndicator size="small" color={COLORS.primary} />
-                : <Ionicons name="musical-notes" size={16} color={COLORS.primary} />}
-              <Text style={styles.speakBtnOutlineText}>Original</Text>
+                : <Ionicons
+                    name={previewActive === 'playing' ? 'pause' : 'musical-notes'}
+                    size={16}
+                    color={COLORS.primary}
+                  />}
+              <Text style={styles.speakBtnOutlineText}>
+                {previewActive === 'playing' ? 'Pause' : 'Original'}
+              </Text>
             </Pressable>
           </View>
 
@@ -182,6 +197,9 @@ export default function ItemDetailModal({
               {dictEntry.phonetic ? (
                 <Text style={styles.phonetic}>/{dictEntry.phonetic}/</Text>
               ) : null}
+              <Text style={styles.pronunciationStatus}>
+                {hasStandardAudio ? 'Standard audio available' : 'Standard audio pack not installed — Speak uses TTS fallback'}
+              </Text>
               <Text style={styles.dictTranslation}>{dictEntry.translation}</Text>
               {dictEntry.tags.length > 0 && (
                 <View style={styles.tagRow}>
@@ -221,7 +239,7 @@ export default function ItemDetailModal({
                   <SectionTitle>Similar words & phrases</SectionTitle>
                   <View style={styles.synonymRow}>
                     {enrichment.synonyms.map(s => (
-                      <Pressable key={s} style={styles.synonymChip} onPress={() => speak(s)}>
+                      <Pressable key={s} style={styles.synonymChip} onPress={() => playPronunciationText(`syn-${live.id}-${s}`, s)}>
                         <Text style={styles.synonymText}>{s}</Text>
                       </Pressable>
                     ))}
@@ -298,6 +316,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 12, fontWeight: '700', color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 20, marginBottom: 8 },
 
   phonetic:        { fontSize: 14, color: COLORS.textSecondary, marginBottom: 6 },
+  pronunciationStatus: { fontSize: 12, color: COLORS.textSecondary, marginBottom: 8 },
   dictTranslation: { fontSize: 14, color: COLORS.text, lineHeight: 22 },
   tagRow:          { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   tagChip:         { backgroundColor: COLORS.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },

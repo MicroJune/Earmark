@@ -8,8 +8,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
 import { useReviewStore } from '../store/reviewStore';
 import { useLibraryStore } from '../store/libraryStore';
-import { playSavedItemAudio, stopClip } from '../services/audio';
-import { speak } from '../services/tts';
+import { toggleSavedItemPreview, stopPreview } from '../services/audio';
+import { usePreviewStore } from '../store/previewStore';
+import { playSavedItemPronunciation } from '../services/pronunciation';
 import { getReviewStats, type ReviewStats } from '../db/queries/reviewLog';
 import { shuffle } from '../utils/spacedRepetition';
 import type { ReviewMode, MasteryLevel, SavedItem } from '../types';
@@ -63,35 +64,35 @@ function SessionSummary({ mode, onRestart, onEnd }: {
 // ─── Clip play button (hear the phrase in its original audio) ────────────────
 
 function PlayClipButton({ item }: { item: SavedItem }) {
-  const [playing, setPlaying] = useState(false);
+  const key = `review-${item.id}`;
+  const state = usePreviewStore(s => (s.activeKey === key ? s.status : 'idle'));
 
-  useEffect(() => () => stopClip(), []);
+  useEffect(() => () => stopPreview(), []);
 
   const handlePlay = async () => {
-    setPlaying(true);
     try {
-      await playSavedItemAudio(item);
+      // Toggle: tap plays the clip, tap again pauses — never starts a 2nd sound
+      await toggleSavedItemPreview(key, item);
     } catch {
       // clip playback is best-effort; the card still works without audio
-    } finally {
-      setPlaying(false);
     }
   };
 
   return (
-    <Pressable style={styles.clipBtn} onPress={handlePlay} disabled={playing}>
-      {playing
+    <Pressable style={styles.clipBtn} onPress={handlePlay}>
+      {state === 'loading'
         ? <ActivityIndicator size="small" color={COLORS.primary} />
-        : <Ionicons name="volume-high-outline" size={16} color={COLORS.primary} />}
-      <Text style={styles.clipBtnText}>Hear it</Text>
+        : <Ionicons name={state === 'playing' ? 'pause' : 'volume-high-outline'} size={16} color={COLORS.primary} />}
+      <Text style={styles.clipBtnText}>{state === 'playing' ? 'Pause' : 'Hear it'}</Text>
     </Pressable>
   );
 }
 
-// TTS readout of the saved text — works fully offline via the system voice
-function SpeakButton({ text }: { text: string }) {
+// Pronunciation readout. Words prefer the local pronunciation pack; phrases
+// and sentences go through TTS (豆包 neural voice, or system engine offline).
+function SpeakButton({ item }: { item: SavedItem }) {
   return (
-    <Pressable style={styles.clipBtn} onPress={() => speak(text)}>
+    <Pressable style={styles.clipBtn} onPress={() => playSavedItemPronunciation(`review-pron-${item.id}`, item)}>
       <Ionicons name="megaphone-outline" size={15} color={COLORS.primary} />
       <Text style={styles.clipBtnText}>Speak</Text>
     </Pressable>
@@ -117,7 +118,7 @@ function FlashcardMode() {
         <Text style={styles.cardPhrase}>{item.text}</Text>
         <View style={styles.audioRow}>
           <PlayClipButton item={item} />
-          <SpeakButton text={item.text} />
+          <SpeakButton item={item} />
         </View>
 
         {revealed ? (
@@ -256,7 +257,8 @@ function ListenIdentifyMode() {
   const currentIndex = session?.currentIndex ?? 0;
   const item = session?.queue[currentIndex] ?? null;
 
-  const [playing, setPlaying] = useState(false);
+  const previewKey = `li-${item?.id}`;
+  const previewState = usePreviewStore(s => (s.activeKey === previewKey ? s.status : 'idle'));
   const [playError, setPlayError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
 
@@ -276,20 +278,17 @@ function ListenIdentifyMode() {
   useEffect(() => {
     setChosen(null);
     setPlayError(null);
-    return () => stopClip();
+    return () => stopPreview();
   }, [item?.id]);
 
   if (!session || !item) return null;
 
   const handlePlay = async () => {
     setPlayError(null);
-    setPlaying(true);
     try {
-      await playSavedItemAudio(item);
+      await toggleSavedItemPreview(previewKey, item);
     } catch (e) {
       setPlayError(e instanceof Error ? e.message : 'Could not play clip');
-    } finally {
-      setPlaying(false);
     }
   };
 
@@ -301,7 +300,7 @@ function ListenIdentifyMode() {
   };
 
   const handleNext = () => {
-    stopClip();
+    stopPreview();
     if (isCorrect) answerCorrect(); else answerIncorrect();
   };
 
@@ -310,13 +309,13 @@ function ListenIdentifyMode() {
       <View style={styles.card}>
         <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
 
-        <Pressable style={styles.listenBtn} onPress={handlePlay} disabled={playing}>
-          {playing
+        <Pressable style={styles.listenBtn} onPress={handlePlay}>
+          {previewState === 'loading'
             ? <ActivityIndicator color="#fff" />
-            : <Ionicons name="volume-high" size={32} color="#fff" />}
+            : <Ionicons name={previewState === 'playing' ? 'pause' : 'volume-high'} size={32} color="#fff" />}
         </Pressable>
         <Text style={styles.listenHint}>
-          {playing ? 'Playing…' : 'Tap to hear the phrase, then pick what you heard'}
+          {previewState === 'playing' ? 'Playing… tap to pause' : 'Tap to hear the phrase, then pick what you heard'}
         </Text>
         {playError && <Text style={styles.listenError}>{playError}</Text>}
 
@@ -343,7 +342,7 @@ function ListenIdentifyMode() {
 
         {chosen === null ? (
           <View style={styles.blankActions}>
-            <Pressable style={styles.skipBtn} onPress={() => { stopClip(); skipItem(); }}>
+            <Pressable style={styles.skipBtn} onPress={() => { stopPreview(); skipItem(); }}>
               <Text style={styles.skipBtnText}>Skip</Text>
             </Pressable>
           </View>
@@ -430,8 +429,9 @@ export default function ReviewScreen() {
               <Text style={styles.sessionCounter}>
                 {session.currentIndex + 1} / {session.queue.length}
               </Text>
-              <Pressable onPress={endSession}>
-                <Text style={styles.endSessionText}>End session</Text>
+              <Pressable style={styles.endSessionBtn} onPress={endSession} hitSlop={6}>
+                <Ionicons name="close" size={14} color={COLORS.textSecondary} />
+                <Text style={styles.endSessionText}>End</Text>
               </Pressable>
             </View>
             {selectedMode === 'flashcard'       && <FlashcardMode />}
@@ -546,7 +546,8 @@ const styles = StyleSheet.create({
 
   sessionHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   sessionCounter:   { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
-  endSessionText:   { fontSize: 14, color: COLORS.error },
+  endSessionBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
+  endSessionText:   { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
 
   modeContainer:    { flex: 1 },
   card:             { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24 },

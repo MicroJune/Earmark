@@ -9,12 +9,12 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList, Segment, Word, SavedItemType, PlaybackRate } from '../types';
 import { COLORS } from '../constants/colors';
-import { usePlaybackStore } from '../store/playbackStore';
+import { usePlaybackStore, type RepeatMode } from '../store/playbackStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { useLibraryStore } from '../store/libraryStore';
 import {
   loadAudio, unloadAudio, play, pause, seekTo,
-  seekToWord as audioSeekToWord, setPlaybackRate, skip,
+  seekToWord as audioSeekToWord, setPlaybackRate, skip, setOnTrackEnd,
 } from '../services/audio';
 import { formatPosition, formatDuration } from '../utils/timeFormat';
 import { lookupWord } from '../services/dictionary';
@@ -63,13 +63,20 @@ const SegmentRow = memo(({ segment, words }: SegmentItem) => {
   const setLoopSegment  = usePlaybackStore(s => s.setLoopSegment);
   const setSelection    = usePlaybackStore(s => s.setSelection);
   const extendSelection = usePlaybackStore(s => s.extendSelection);
+  const clearSelection  = usePlaybackStore(s => s.clearSelection);
 
   const isLooping = loopSegment?.id === segment.id;
 
   const handleWordPress = useCallback((wordIndex: number) => {
-    if (selectionStart !== null) extendSelection(wordIndex);
-    else audioSeekToWord(wordIndex);
-  }, [selectionStart, extendSelection]);
+    if (selectionStart !== null) {
+      const end = selectionEnd ?? selectionStart;
+      // Tapping a word already inside the selection cancels it; otherwise extend
+      if (wordIndex >= selectionStart && wordIndex <= end) clearSelection();
+      else extendSelection(wordIndex);
+    } else {
+      audioSeekToWord(wordIndex);
+    }
+  }, [selectionStart, selectionEnd, extendSelection, clearSelection]);
 
   const handleWordLongPress = useCallback((wordIndex: number) => {
     setSelection(wordIndex, wordIndex);
@@ -79,6 +86,8 @@ const SegmentRow = memo(({ segment, words }: SegmentItem) => {
     <Pressable
       style={[styles.segment, isLooping && styles.segmentLooping]}
       onLongPress={() => setLoopSegment(isLooping ? null : segment)}
+      // Tapping the blank area of a segment while selecting cancels the selection
+      onPress={() => { if (selectionStart !== null) clearSelection(); }}
     >
       <View style={styles.wordRow}>
         {words.map(w => {
@@ -117,14 +126,19 @@ function SeekBar({ position, duration }: { position: number; duration: number })
     seekTo(ratio * duration);
   };
 
+  // Keep the thumb fully inside the track at both extremes.
+  const thumbLeft = Math.max(0, Math.min(barWidth - 14, barWidth * progress - 7));
+
   return (
     <Pressable
-      style={styles.seekTrack}
+      style={styles.seekTouchArea}
       onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
       onPress={handlePress}
     >
-      <View style={[styles.seekFill, { width: barWidth * progress }]} />
-      <View style={[styles.seekThumb, { left: barWidth * progress - 6 }]} />
+      <View style={styles.seekTrack}>
+        <View style={[styles.seekFill, { width: barWidth * progress }]} />
+      </View>
+      <View style={[styles.seekThumb, { left: thumbLeft }]} />
     </Pressable>
   );
 }
@@ -135,6 +149,8 @@ function AudioPlayerBar({ audioFileId }: { audioFileId: number }) {
   const isPlaying      = usePlaybackStore(s => s.isPlaying);
   const currentPosition = usePlaybackStore(s => s.currentPosition);
   const playbackRate   = usePlaybackStore(s => s.playbackRate);
+  const repeatMode     = usePlaybackStore(s => s.repeatMode);
+  const setRepeatMode  = usePlaybackStore(s => s.setRepeatMode);
   const audioFile      = useAudioFilesStore(s => s.audioFiles.find(f => f.id === audioFileId));
   const duration       = audioFile?.duration ?? 0;
 
@@ -142,6 +158,13 @@ function AudioPlayerBar({ audioFileId }: { audioFileId: number }) {
     const next = PLAYBACK_RATES[(PLAYBACK_RATES.indexOf(playbackRate) + 1) % PLAYBACK_RATES.length];
     setPlaybackRate(next);
   };
+
+  // off → one (repeat this file) → all (play category in order) → off
+  const cycleRepeat = () => {
+    const next: RepeatMode = repeatMode === 'off' ? 'one' : repeatMode === 'one' ? 'all' : 'off';
+    setRepeatMode(next);
+  };
+  const repeatActive = repeatMode !== 'off';
 
   return (
     <View style={styles.playerBar}>
@@ -152,19 +175,46 @@ function AudioPlayerBar({ audioFileId }: { audioFileId: number }) {
         <Text style={styles.timeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text>
       </View>
 
+      {/* Three balanced zones: rate (left) | transport (center) | repeat (right).
+          The side zones share flex:1 and the side chips share one size, so the
+          play button sits exactly at the horizontal center of the screen. */}
       <View style={styles.controls}>
-        <Pressable style={styles.controlBtn} onPress={() => skip(-10)}>
-          <Ionicons name="play-back" size={22} color={COLORS.text} />
-        </Pressable>
-        <Pressable style={styles.playBtn} onPress={() => isPlaying ? pause() : play()}>
-          <Ionicons name={isPlaying ? 'pause' : 'play'} size={28} color="#fff" />
-        </Pressable>
-        <Pressable style={styles.controlBtn} onPress={() => skip(10)}>
-          <Ionicons name="play-forward" size={22} color={COLORS.text} />
-        </Pressable>
-        <Pressable style={styles.rateBtn} onPress={cycleRate}>
-          <Text style={styles.rateText}>{playbackRate}×</Text>
-        </Pressable>
+        <View style={styles.sideZoneLeft}>
+          <Pressable style={styles.sideChip} onPress={cycleRate}>
+            <Text style={styles.rateText}>{playbackRate}×</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.transport}>
+          <Pressable style={styles.skipBtn} onPress={() => skip(-10)} hitSlop={6}>
+            <Ionicons name="play-back" size={20} color={COLORS.text} />
+            <Text style={styles.skipLabel}>10</Text>
+          </Pressable>
+          <Pressable style={styles.playBtn} onPress={() => isPlaying ? pause() : play()}>
+            <Ionicons
+              name={isPlaying ? 'pause' : 'play'}
+              size={30}
+              color="#fff"
+              // the play triangle is optically left-heavy — nudge it right
+              style={isPlaying ? undefined : { marginLeft: 3 }}
+            />
+          </Pressable>
+          <Pressable style={styles.skipBtn} onPress={() => skip(10)} hitSlop={6}>
+            <Ionicons name="play-forward" size={20} color={COLORS.text} />
+            <Text style={styles.skipLabel}>10</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.sideZoneRight}>
+          <Pressable
+            style={[styles.sideChip, repeatActive && styles.sideChipActive]}
+            onPress={cycleRepeat}
+          >
+            <Ionicons name="repeat" size={16} color={repeatActive ? COLORS.primary : COLORS.textSecondary} />
+            {repeatMode === 'one' && <Text style={styles.repeatBadge}>1</Text>}
+            {repeatMode === 'all' && <Text style={styles.repeatBadge}>∞</Text>}
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -298,10 +348,29 @@ export default function ContentViewScreen({ route, navigation }: Props) {
   const transcript     = usePlaybackStore(s => s.transcript);
   const activeWordIndex = usePlaybackStore(s => s.activeWordIndex);
   const audioFile      = useAudioFilesStore(s => s.audioFiles.find(f => f.id === audioFileId));
+  const audioFiles     = useAudioFilesStore(s => s.audioFiles);
 
   const flashListRef = useRef<FlashListRef<SegmentItem>>(null);
   const lastActiveSegmentRef = useRef(-1);
+  const autoPlayRef = useRef(false); // set when advancing to the next file in 'all' mode
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
+
+  // Sequential playback ('all'): when the current file ends, advance to the
+  // next ready file in the same category and auto-play it.
+  useEffect(() => {
+    setOnTrackEnd(() => {
+      if (usePlaybackStore.getState().repeatMode !== 'all') return;
+      const cat = audioFile?.categoryId ?? null;
+      const inCat = audioFiles.filter(f => f.categoryId === cat && f.status === 'ready');
+      const idx = inCat.findIndex(f => f.id === audioFileId);
+      const next = idx >= 0 ? inCat[idx + 1] : undefined;
+      if (next) {
+        autoPlayRef.current = true;
+        navigation.setParams({ audioFileId: next.id });
+      }
+    });
+    return () => setOnTrackEnd(null);
+  }, [audioFileId, audioFile?.categoryId, audioFiles, navigation]);
 
   // Prepare flat list data — recomputed only when transcript changes
   const segmentItems = useMemo<SegmentItem[]>(() => {
@@ -312,7 +381,23 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     }));
   }, [transcript]);
 
-  // Auto-scroll: when the active word enters a new segment, scroll to it
+  // Which segment indexes are currently on screen — used to decide whether
+  // auto-scroll is needed at all.
+  const visibleRangeRef = useRef({ first: -1, last: -1 });
+  const handleViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
+      if (viewableItems.length === 0) return;
+      visibleRangeRef.current = {
+        first: viewableItems[0].index ?? -1,
+        last: viewableItems[viewableItems.length - 1].index ?? -1,
+      };
+    }
+  ).current;
+
+  // Auto-scroll: when the active word enters a new segment, scroll to it —
+  // but ONLY if that segment isn't already on screen. Without this check,
+  // tapping a visible word yanks its line to the top of the list (under the
+  // top bar) even though there was nothing to scroll to.
   useEffect(() => {
     if (!transcript || activeWordIndex < 0) return;
     const segIndex = transcript.segments.findIndex(
@@ -320,8 +405,18 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     );
     if (segIndex === -1 || segIndex === lastActiveSegmentRef.current) return;
     lastActiveSegmentRef.current = segIndex;
+
+    const { first, last } = visibleRangeRef.current;
+    if (first !== -1 && segIndex >= first && segIndex <= last) return; // already visible
+
     try {
-      flashListRef.current?.scrollToIndex({ index: segIndex, animated: true, viewOffset: 60 });
+      // Land the line ~30% from the top — comfortable to read and clear of
+      // the top bar (viewPosition is the fraction of the viewport).
+      flashListRef.current?.scrollToIndex({
+        index: segIndex,
+        animated: true,
+        viewPosition: 0.3,
+      });
     } catch {}
   }, [activeWordIndex, transcript]);
 
@@ -343,13 +438,19 @@ export default function ContentViewScreen({ route, navigation }: Props) {
         if (mounted) {
           await loadAudio(audioFile.uri, audioFileId, audioFile.title);
           log.info('content', `audio loaded id=${audioFileId}`);
-          // Resume where the user left off — unless they were at the very
-          // start or had effectively finished the episode.
-          const resumeAt = audioFile.lastPosition;
-          const nearEnd = audioFile.duration > 0 && resumeAt >= audioFile.duration * 0.98;
-          if (resumeAt > 5 && !nearEnd) {
-            await seekTo(resumeAt);
-            usePlaybackStore.getState().setPosition(resumeAt);
+          if (autoPlayRef.current) {
+            // Arrived here via sequential auto-advance — start from the top
+            autoPlayRef.current = false;
+            await play();
+          } else {
+            // Resume where the user left off — unless they were at the very
+            // start or had effectively finished the episode.
+            const resumeAt = audioFile.lastPosition;
+            const nearEnd = audioFile.duration > 0 && resumeAt >= audioFile.duration * 0.98;
+            if (resumeAt > 5 && !nearEnd) {
+              await seekTo(resumeAt);
+              usePlaybackStore.getState().setPosition(resumeAt);
+            }
           }
         }
       } catch (e) {
@@ -397,6 +498,8 @@ export default function ContentViewScreen({ route, navigation }: Props) {
           keyExtractor={item => String(item.segment.id)}
           renderItem={({ item }) => <SegmentRow segment={item.segment} words={item.words} />}
           contentContainerStyle={styles.transcriptContent}
+          onViewableItemsChanged={handleViewableItemsChanged}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         />
       </View>
 
@@ -455,16 +558,26 @@ const styles = StyleSheet.create({
   playerContainer:  { backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
   playerBar:        { padding: 16 },
 
-  seekTrack:        { height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginBottom: 8 },
-  seekFill:         { height: 4, backgroundColor: COLORS.primary, borderRadius: 2, position: 'absolute' },
-  seekThumb:        { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.primary, position: 'absolute', top: -4 },
+  // 24px-tall touch area around a 4px visual track — easy to tap precisely.
+  seekTouchArea:    { height: 24, justifyContent: 'center', marginBottom: 2 },
+  seekTrack:        { height: 4, backgroundColor: COLORS.border, borderRadius: 2, overflow: 'hidden' },
+  seekFill:         { height: 4, backgroundColor: COLORS.primary, borderRadius: 2 },
+  seekThumb:        { width: 14, height: 14, borderRadius: 7, backgroundColor: COLORS.primary, position: 'absolute', top: 5, borderWidth: 2, borderColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
 
-  timeRow:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-  timeText:         { fontSize: 12, color: COLORS.textSecondary },
+  timeRow:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  timeText:         { fontSize: 12, color: COLORS.textSecondary, fontVariant: ['tabular-nums'] },
 
-  controls:         { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 20 },
-  controlBtn:       { padding: 8 },
-  playBtn:          { width: 52, height: 52, borderRadius: 26, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
-  rateBtn:          { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: COLORS.primaryLight, borderRadius: 8 },
-  rateText:         { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  controls:         { flexDirection: 'row', alignItems: 'center' },
+  sideZoneLeft:     { flex: 1, alignItems: 'flex-start' },
+  sideZoneRight:    { flex: 1, alignItems: 'flex-end' },
+  // Rate and repeat share one chip shape so the two sides mirror each other.
+  sideChip:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, minWidth: 56, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: COLORS.primaryLight },
+  sideChipActive:   { borderWidth: 1.5, borderColor: COLORS.primary },
+  rateText:         { fontSize: 13, fontWeight: '700', color: COLORS.primary, fontVariant: ['tabular-nums'] },
+  repeatBadge:      { fontSize: 11, fontWeight: '700', color: COLORS.primary },
+
+  transport:        { flexDirection: 'row', alignItems: 'center', gap: 24 },
+  skipBtn:          { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  skipLabel:        { position: 'absolute', bottom: 1, fontSize: 9, fontWeight: '700', color: COLORS.textSecondary },
+  playBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: COLORS.primary, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
 });

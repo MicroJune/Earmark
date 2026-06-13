@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { File, Directory, Paths } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/colors';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { deleteAudioFileKeepingCards, previewAudioFileDeletion } from '../services/fileDeletion';
@@ -56,6 +57,7 @@ interface FileRow {
 export default function StorageModal({
   visible, onClose,
 }: { visible: boolean; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   const audioFiles = useAudioFilesStore(s => s.audioFiles);
   const [rows, setRows] = useState<FileRow[]>([]);
   const [modelsBytes, setModelsBytes] = useState(0);
@@ -115,7 +117,8 @@ export default function StorageModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.modal}>
+      {/* Keep the header clear of the status bar (Android edge-to-edge) */}
+      <View style={[styles.modal, { paddingTop: Math.max(insets.top, 16) + 8 }]}>
         <View style={styles.header}>
           <Text style={styles.title}>Storage</Text>
           <Pressable onPress={onClose} hitSlop={8}>

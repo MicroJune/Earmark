@@ -76,8 +76,13 @@ export async function extractClips(
 ): Promise<Map<number, string>> {
   if (requests.length === 0) return new Map();
 
+  // Short-circuit BEFORE require(): in Expo Go a failed native install
+  // reports a fatal LogBox error that escapes try/catch.
+  if (!isClipExtractionSupported()) {
+    throw new Error('Clip extraction needs the development build (not available in Expo Go).');
+  }
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod: any = (() => { try { return require('react-native-audio-api'); } catch { return null; } })();
+  const mod: any = require('react-native-audio-api');
   if (typeof mod?.AudioContext !== 'function') {
     throw new Error('Clip extraction needs the development build (not available in Expo Go).');
   }
@@ -85,7 +90,10 @@ export async function extractClips(
   log.info('clips', `extracting ${requests.length} clip(s) from ${sourceUri}`);
   const ctx = new mod.AudioContext();
   try {
-    const audioBuffer = await ctx.decodeAudioDataSource(sourceUri);
+    // react-native-audio-api 0.12: method is decodeAudioData (not ...Source).
+    // No sampleRate set on the context here — keep the file's native rate so
+    // the extracted clips sound natural.
+    const audioBuffer = await ctx.decodeAudioData(sourceUri);
     if (!audioBuffer) throw new Error('Could not decode source audio');
 
     const sampleRate: number = audioBuffer.sampleRate;

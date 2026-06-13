@@ -14,6 +14,7 @@ interface AudioFileRow {
   error_message: string | null;
   category_id: number | null;
   last_position: number;
+  sort_order: number | null;
 }
 
 function rowToAudioFile(row: AudioFileRow): AudioFile {
@@ -28,6 +29,7 @@ function rowToAudioFile(row: AudioFileRow): AudioFile {
     errorMessage: row.error_message ?? undefined,
     categoryId: row.category_id,
     lastPosition: row.last_position,
+    sortOrder: row.sort_order,
   };
 }
 
@@ -93,6 +95,17 @@ export async function updateAudioFileTitle(
     'UPDATE audio_files SET title = ? WHERE id = ?',
     [title, id]
   );
+}
+
+/** Persists a manual ordering: each file id gets its array index as sort_order. */
+export async function setAudioFileSortOrders(orderedIds: number[]): Promise<void> {
+  if (orderedIds.length === 0) return;
+  const db = await getDb();
+  await db.withTransactionAsync(async () => {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.runAsync('UPDATE audio_files SET sort_order = ? WHERE id = ?', [i, orderedIds[i]]);
+    }
+  });
 }
 
 export async function updateAudioFilePosition(id: number, position: number): Promise<void> {

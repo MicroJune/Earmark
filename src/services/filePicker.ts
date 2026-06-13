@@ -49,42 +49,57 @@ function sanitizeFilename(filename: string): string {
 
 // ─── Pick & import ────────────────────────────────────────────────────────────
 
-export async function pickAudioFile(): Promise<PickedAudioFile | null> {
+async function importAsset(asset: DocumentPicker.DocumentPickerAsset): Promise<PickedAudioFile> {
+  const audioDir = new Directory(Paths.document, 'audio');
+  if (!audioDir.exists) audioDir.create({ intermediates: true });
+
+  const destFileName = `${Date.now()}_${sanitizeFilename(asset.name)}`;
+  const destFile = new File(audioDir, destFileName);
+  log.debug('filePicker', `copying to: ${destFile.uri}`);
+
+  await copyAsync({ from: asset.uri, to: destFile.uri });
+  log.info('filePicker', `copy done, size: ${destFile.size}`);
+
+  return {
+    uri: destFile.uri,
+    name: asset.name,
+    title: extractTitle(asset.name),
+    mimeType: asset.mimeType ?? 'audio/mpeg',
+    sizeBytes: asset.size ?? destFile.size,
+  };
+}
+
+/** Pick one or more audio files; each is copied into app storage. */
+export async function pickAudioFiles(): Promise<PickedAudioFile[]> {
   const result = await DocumentPicker.getDocumentAsync({
     type: SUPPORTED_MIME_TYPES,
     copyToCacheDirectory: false,
-    multiple: false,
+    multiple: true,
   });
 
-  if (result.canceled) return null;
+  if (result.canceled) return [];
 
-  const asset = result.assets[0];
-  log.info('filePicker', `picked: ${asset.name}`, { uri: asset.uri, size: asset.size, mimeType: asset.mimeType });
-
-  try {
-    const audioDir = new Directory(Paths.document, 'audio');
-    if (!audioDir.exists) audioDir.create({ intermediates: true });
-
-    const destFileName = `${Date.now()}_${sanitizeFilename(asset.name)}`;
-    const destFile = new File(audioDir, destFileName);
-    log.debug('filePicker', `copying to: ${destFile.uri}`);
-
-    await copyAsync({ from: asset.uri, to: destFile.uri });
-    log.info('filePicker', `copy done, size: ${destFile.size}`);
-
-    return {
-      uri: destFile.uri,
-      name: asset.name,
-      title: extractTitle(asset.name),
-      mimeType: asset.mimeType ?? 'audio/mpeg',
-      sizeBytes: asset.size ?? destFile.size,
-    };
-  } catch (e) {
-    log.error('filePicker', 'import failed', e instanceof Error ? e : new Error(String(e)));
-    throw new FilePickerError(
-      `Failed to import audio file: ${e instanceof Error ? e.message : String(e)}`
-    );
+  const imported: PickedAudioFile[] = [];
+  for (const asset of result.assets) {
+    log.info('filePicker', `picked: ${asset.name}`, { uri: asset.uri, size: asset.size, mimeType: asset.mimeType });
+    try {
+      imported.push(await importAsset(asset));
+    } catch (e) {
+      log.error('filePicker', `import failed: ${asset.name}`, e instanceof Error ? e : new Error(String(e)));
+      // Import the rest; surface a single error if NOTHING succeeded.
+      if (result.assets.length === 1) {
+        throw new FilePickerError(
+          `Failed to import audio file: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+    }
   }
+  return imported;
+}
+
+export async function pickAudioFile(): Promise<PickedAudioFile | null> {
+  const files = await pickAudioFiles();
+  return files[0] ?? null;
 }
 
 // ─── File management ──────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ The app now supports two transcription engines (Settings → Transcription):
 | Engine | Internet | API key | File size limit | Speed |
 |---|---|---|---|---|
 | **On-device** (whisper.cpp) | Only for the one-time model download | None | None | ~real-time with `base.en` on a modern phone |
-| **Cloud** (Groq Whisper) | Required | Required (free) | 25 MB | Very fast |
+| **Cloud** (火山引擎 豆包 ASR) | Required | Required (API Key) | 100 MB | Very fast |
 
 On-device transcription uses two **native** modules:
 
@@ -57,6 +57,8 @@ After installing the dev build once, daily development is the same as before:
 - **AI phrase suggestions** (Claude API, optional — needs an Anthropic key).
   Results are cached per file, so once fetched they are available offline.
 - Whisper **model download** (one-time per model).
+- **豆包朗读 (TTS)** — first playback of each text only; the audio is then cached
+  on disk and replays offline. Falls back to the system TTS engine when offline.
 
 ## How it works
 
@@ -75,5 +77,5 @@ Code map:
 - `src/services/transcription/localWhisper.ts` — whisper.rn integration
 - `src/services/transcription/audioDecoder.ts` — mp3/m4a → 16 kHz WAV
 - `src/services/transcription/models.ts` — model registry + downloads
-- `src/services/whisper.ts` — cloud (Groq) engine
+- `src/services/transcription/volcanoAsr.ts` — cloud (火山引擎豆包) engine
 - `src/services/settings.ts` — engine/model preferences

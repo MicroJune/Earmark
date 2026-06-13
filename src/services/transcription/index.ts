@@ -3,7 +3,7 @@ import { updateAudioFileStatus } from '../../db/queries/audioFiles';
 import { useAudioFilesStore } from '../../store/audioFilesStore';
 import { getSettings } from '../settings';
 import { getApiKeys } from '../config';
-import { transcribeAudio } from '../whisper';
+import { transcribeAudioVolcano } from './volcanoAsr';
 import { transcribeAudioLocally } from './localWhisper';
 import { log } from '../../utils/logger';
 import { isLocalEngineSupported } from './support';
@@ -13,7 +13,7 @@ export { isLocalEngineSupported } from './support';
 // ─── Transcription orchestrator ───────────────────────────────────────────────
 // Dispatches to the engine chosen in Settings:
 //   - 'local': whisper.cpp on-device (offline, no API key, no file size limit)
-//   - 'cloud': Groq Whisper API (needs internet + API key, 25 MB limit)
+//   - 'cloud': 火山引擎豆包 ASR (needs internet + credentials, 100 MB limit)
 
 export interface TranscribeOptions {
   language?: string;
@@ -23,7 +23,7 @@ export interface TranscribeOptions {
 /**
  * Full transcription pipeline:
  *   1. Marks the file as 'transcribing'
- *   2. Runs the configured engine (local whisper.cpp or Groq cloud)
+ *   2. Runs the configured engine (local whisper.cpp or Volcano cloud)
  *   3. Saves segments and words to SQLite
  *   4. Marks the file as 'ready'
  *
@@ -62,14 +62,18 @@ export async function transcribeAndSave(
       });
     } else {
       const keys = await getApiKeys();
-      if (!keys?.groqApiKey) {
+      if (!keys.volcApiKey) {
         throw new Error(
           fellBack
-            ? 'On-device transcription needs the development build (Expo Go can\'t run it), and cloud transcription needs a Groq API key. Add a key in Settings to transcribe in Expo Go.'
-            : 'Cloud transcription needs a Groq API key. Add one in Settings, or switch to the On-device engine.'
+            ? 'On-device transcription needs the development build (Expo Go can\'t run it), and cloud transcription needs a 火山引擎 API Key. Add it in Settings to transcribe in Expo Go.'
+            : 'Cloud transcription needs a 火山引擎 API Key. Add it in Settings, or switch to the On-device engine.'
         );
       }
-      parsed = await transcribeAudio(uri, keys.groqApiKey, options);
+      parsed = await transcribeAudioVolcano(
+        uri,
+        { apiKey: keys.volcApiKey },
+        options
+      );
     }
 
     log.info('transcription', `done: ${parsed.segments.length} segments, ${parsed.words.length} words`);

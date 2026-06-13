@@ -1,4 +1,6 @@
-# Postcast Assistant — Project Context
+# Earmark — Project Context
+
+> App display name is **Earmark** (ear + mark = save what you hear; also a real English verb meaning "to set aside for a purpose"). The Expo `slug` remains `postcast-assistant` (internal EAS identity — don't change it).
 
 ## What This Project Is
 
@@ -26,15 +28,16 @@ The user is a Chinese developer learning English who regularly listens to podcas
 | File picker | expo-document-picker | Pick local audio files from phone storage |
 | Local storage | expo-sqlite | Persist saved vocabulary, phrases, sentences |
 | Transcription (default) | On-device whisper.cpp via whisper.rn | Fully offline, free, no file size limit; word-level timestamps via tokenTimestamps + maxLen=1 |
-| Transcription (fallback) | Groq API — whisper-large-v3 | Optional cloud engine (Settings); fast but needs internet + key, 25 MB limit |
+| Transcription (fallback) | 火山引擎 豆包大模型 ASR (录音文件识别极速版) | Optional cloud engine (Settings); word-level timestamps, official AUC audio URL flow, 100 MB / 2 h limit |
+| Pronunciation readout (TTS) | 火山引擎 豆包语音合成 (bigtts, same API Key as ASR) + system TTS fallback | Dictionary-quality neural voices; synthesized audio cached on disk → offline replay |
 | Audio decode (offline path) | react-native-audio-api | Decodes mp3/m4a → 16 kHz mono WAV that whisper.cpp requires |
-| AI features | Claude API — Haiku model (called directly from app) | Phrase suggestions; opt-in, online-only, result cached per file in SQLite |
+| AI features | 豆包 LLM (火山方舟, doubao-seed-1.6-flash) or DeepSeek — selectable in Settings | Phrase suggestions + learning notes; opt-in, online-only, cached in SQLite. 方舟 API Key 与语音 API Key 是两套体系 |
 
 ## Scope Decisions
 
 - **V1: Local audio files only.** Users pick audio files already on their phone. No URL parsing, no Bilibili/YouTube extraction. URL support is a future feature.
 - **Offline-first.** Transcription runs on-device by default (whisper.cpp); the app is fully usable in airplane mode. Only optional AI suggestions and one-time Whisper model downloads need internet. See `OFFLINE_SETUP.md`.
-- **No backend.** Any API calls (Groq cloud engine, Claude) are made directly from the mobile app. Acceptable for a personal tool. Never hardcode API keys in source — keys live in SecureStore only.
+- **No backend.** Any API calls (火山引擎 ASR/TTS, 豆包方舟/DeepSeek LLM) are made directly from the mobile app. Acceptable for a personal tool. Never hardcode API keys in source — keys live in SecureStore only.
 - **Dev build required for the offline engine.** whisper.rn and react-native-audio-api are native modules — `npx expo prebuild` + `npx expo run:android` (or EAS). The app still runs in Expo Go with the cloud engine; local-engine modules are lazily require()d.
 - **Android first.** iOS support is available later for free via React Native/Expo.
 
@@ -73,7 +76,7 @@ User reviews saved items via flashcard/quiz mode
 - Loop a sentence — double-tap a sentence to loop it repeatedly (for shadowing/pronunciation practice)
 - Playback speed control — 0.75x, 1x, 1.25x, 1.5x
 - Save selected phrase/word/sentence with one tap; saves with full sentence context and timestamp
-- AI-suggested phrases — Claude can highlight phrases worth learning at the user's level
+- AI-suggested phrases — the AI provider can highlight phrases worth learning at the user's level
 
 ### 3. Library Screen (Friendly UI + Rich Functions)
 - All saved vocabulary, phrases, and sentences across all audio files
@@ -112,13 +115,16 @@ User reviews saved items via flashcard/quiz mode
 - Data safety: JSON backup export/import (merge-safe, Settings → Data & storage); deleting an audio file keeps its saved items — audio clips are batch-extracted first (dev build; services/clips.ts + services/fileDeletion.ts); stuck 'transcribing' rows auto-recover to 'error' at startup
 - Listening UX: per-file playback position persisted (resume on open, "% listened" on cards); storage management screen (per-file sizes, remove-audio-keep-cards)
 - Review retention: daily local notification reminder (expo-notifications, Settings toggle + time presets); saved items editable (fix Whisper errors) via pencil icon in item detail
+- Settings (Chinese UI): hub page with readiness status per feature + sub-pages (转写引擎/发音朗读/AI 学习笔记/数据与存储, src/components/settings/); engine page shows only the selected mode's config with ready/missing-step badges; API keys live in the pages that use them and auto-save on blur; AI notes has a master toggle (settings.aiEnabled, gates auto-enrichment)
 - Categories (folder model): Home is a category overview (user categories + built-in "Uncategorized"); CategoryScreen shows a category's files, imports into that category, multi-select supports move-to-category and delete; deleting a category returns its files to Uncategorized
-- Transcription engine abstraction: on-device whisper.cpp (default) + Groq cloud (optional), selected in Settings
+- Category file list UX: search by title; sort cycle 按添加时间/文件名/大小/自定义 (manual order via audio_files.sort_order, migration v7, ↑↓ buttons); multi-file import (no auto-transcription — tap pending card or multi-select 转写 for a sequential queue); multi-delete shows a progress overlay; long titles horizontally scrollable
+- Transcription engine abstraction: on-device whisper.cpp (default) + 火山引擎豆包 cloud (optional), selected in Settings; one 火山 API Key powers both cloud ASR and 豆包 TTS (services/volcano.ts, services/transcription/volcanoAsr.ts)
+- Pronunciation readout: 豆包 bigtts neural voices (8 EN presets, US/UK/AU) with per-text disk cache (document/tts-cache) and automatic fallback to system TTS (expo-speech) when offline/unconfigured — Settings → Pronunciation
 - Whisper model manager: download/delete tiny.en / base.en / small.en (q5_1) from Hugging Face with progress UI
 - Review modes: flashcard (with audio clip playback), fill-in-the-blank, listen & identify (multiple choice)
 - Library: search, type/mastery filters, sort (newest/oldest/mastery/A–Z)
 - Daily streak + reviewed-today stats via review_log
-- AI phrase suggestions modal (Claude, optional, cached per file)
+- AI phrase suggestions modal (豆包方舟 or DeepSeek, optional, cached per file; services/ai.ts + services/suggestions.ts)
 
 ## Next Steps
 

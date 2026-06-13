@@ -10,7 +10,10 @@ import type { EventSubscription } from 'expo-modules-core';
 import type { PlaybackRate, SavedItem } from '../types';
 import { usePlaybackStore } from '../store/playbackStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
+import { usePreviewStore } from '../store/previewStore';
 import { updateAudioFilePosition, getAudioFile } from '../db/queries/audioFiles';
+import { findSentenceBounds } from './sentenceLocator';
+import { log } from '../utils/logger';
 
 // ─── Singleton sound instance ─────────────────────────────────────────────────
 // Only one audio file plays at a time. A new loadAudio() call unloads the previous one.
@@ -44,7 +47,10 @@ export async function setupAudioMode(): Promise<void> {
   await setAudioModeAsync({
     playsInSilentMode: true,
     shouldPlayInBackground: true,
-    interruptionMode: 'duckOthers',
+    // expo-audio requires 'doNotMix' for setActiveForLockScreen (media
+    // notification / lock-screen controls) to work. It also pauses other
+    // apps' audio when playback starts — appropriate for podcasts.
+    interruptionMode: 'doNotMix',
   });
 }
 
@@ -83,14 +89,30 @@ function handlePlaybackStatus(status: AudioStatus): void {
     return;
   }
 
-  // End of file — reset the saved position so next open starts from the top
+  // End of file
   if (status.didJustFinish) {
+    const mode = usePlaybackStore.getState().repeatMode;
+    if (mode === 'one') {
+      // Loop this file — restart from the top, keep playing
+      void seekTo(0).then(() => _player?.play());
+      return;
+    }
     store.setIsPlaying(false);
     if (_activeAudioFileId) {
       _lastPersistedPosition = 0;
       void updateAudioFilePosition(_activeAudioFileId, 0).catch(() => {});
     }
+    // 'all' (sequential) is handled by the ContentView via this hook, since
+    // advancing to the next file is a navigation/loading concern.
+    if (mode === 'all') _onTrackEnd?.();
   }
+}
+
+// Registered by the Content View so 'all' (sequential) playback can advance to
+// the next file in the category when the current one ends.
+let _onTrackEnd: (() => void) | null = null;
+export function setOnTrackEnd(fn: (() => void) | null): void {
+  _onTrackEnd = fn;
 }
 
 // ─── Load / unload ────────────────────────────────────────────────────────────
@@ -102,7 +124,9 @@ let _notificationPermissionRequested = false;
 function ensureNotificationPermission(): void {
   if (_notificationPermissionRequested || Platform.OS !== 'android') return;
   _notificationPermissionRequested = true;
-  void requestNotificationPermissionsAsync().catch(() => {});
+  void requestNotificationPermissionsAsync()
+    .then(r => log.info('audio', `notification permission: granted=${r.granted} status=${r.status} canAskAgain=${r.canAskAgain}`))
+    .catch(e => log.warn('audio', 'notification permission request failed', e instanceof Error ? e.message : String(e)));
 }
 
 /**
@@ -136,13 +160,17 @@ export async function loadAudio(
     // Lock-screen / notification media controls (best-effort — in-app
     // playback works even if this fails on some device/launcher)
     ensureNotificationPermission();
+    log.info('audio', `lockscreen registration: api=${typeof player.setActiveForLockScreen} android=${Platform.Version}`);
     try {
       player.setActiveForLockScreen(
         true,
         { title: title ?? 'Podcast', artist: 'Podcast Assistant' },
         { showSeekForward: true, showSeekBackward: true }
       );
-    } catch {}
+      log.info('audio', 'lockscreen controls registered OK');
+    } catch (e) {
+      log.warn('audio', 'setActiveForLockScreen FAILED', e instanceof Error ? e.message : String(e));
+    }
   } catch (e) {
     throw new AudioServiceError(
       `Failed to load audio: ${e instanceof Error ? e.message : String(e)}`
@@ -161,6 +189,8 @@ export async function unloadAudio(): Promise<void> {
   try {
     _statusSubscription?.remove();
     try { _player.clearLockScreenControls(); } catch {}
+    // pause() BEFORE remove() — same Android quirk as stopPreview()
+    try { _player.pause(); } catch {}
     _player.remove();
   } finally {
     _player = null;
@@ -181,6 +211,7 @@ export async function unloadAudio(): Promise<void> {
 // ─── Playback controls ────────────────────────────────────────────────────────
 
 export async function play(): Promise<void> {
+  stopPreview(); // main playback and clip previews never play at once
   _player?.play();
 }
 
@@ -241,84 +272,166 @@ export function isLoaded(): boolean {
   return _player !== null;
 }
 
-// ─── Clip playback (for review modes) ─────────────────────────────────────────
-// Plays a short [start, end] excerpt of a file on a separate throwaway player,
-// so it never interferes with the main transcript player.
+// ─── Preview playback (Library detail + Review modes) ─────────────────────────
+// A "preview" is a short [start,end] excerpt. Only ONE preview plays at a time,
+// and starting one pauses the main transcript player — the two never overlap.
+// State lives in usePreviewStore so buttons can show a play/pause icon and a
+// second tap on the same button pauses (rather than starting a second sound).
+
+// A clip should never play longer than this. Guards against bad timestamps
+// (e.g. a wrong unit) that would otherwise play most of the file.
+const MAX_CLIP_SECONDS = 30;
 
 let _clipPlayer: AudioPlayer | null = null;
 let _clipSubscription: EventSubscription | null = null;
+let _clipTimeout: ReturnType<typeof setTimeout> | null = null;
 
-export function stopClip(): void {
+function setPreviewState(key: string | null, status: 'idle' | 'loading' | 'playing' | 'paused') {
+  usePreviewStore.getState().set(key, status);
+}
+
+/** Stops and releases the preview player and resets preview UI state. */
+export function stopPreview(): void {
+  if (_clipTimeout) { clearTimeout(_clipTimeout); _clipTimeout = null; }
   _clipSubscription?.remove();
   _clipSubscription = null;
+  // pause() BEFORE remove(): on Android, releasing a playing player can leave
+  // the sound running with no handle to control it.
+  try { _clipPlayer?.pause(); } catch {}
   _clipPlayer?.remove();
   _clipPlayer = null;
+  setPreviewState(null, 'idle');
 }
 
 /**
- * Plays the [start, end] excerpt of an audio file.
- * Resolves when the clip finishes (or is stopped by a newer clip).
+ * Toggles a bounded [start,end] preview clip identified by `key`:
+ *   - same key currently playing → pause
+ *   - same key currently paused  → resume
+ *   - any other state            → stop whatever's playing (incl. main) and
+ *                                   start this clip from `start`
  */
-export async function playClip(uri: string, start: number, end: number): Promise<void> {
-  stopClip();
+export function togglePreview(key: string, uri: string, start: number, end: number): void {
+  const { activeKey, status } = usePreviewStore.getState();
 
-  return new Promise<void>((resolve, reject) => {
-    try {
-      const player = createAudioPlayer({ uri }, { updateInterval: 50 }); // ms — fine-grained clip-end detection
-      _clipPlayer = player;
-
-      let finished = false;
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        stopClip();
-        resolve();
-      };
-
-      _clipSubscription = player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
-        if (!status.isLoaded) return;
-        if (status.didJustFinish || status.currentTime >= end) finish();
-      });
-
-      void player
-        .seekTo(Math.max(0, start))
-        .then(() => player.play())
-        .catch(() => {
-          finish();
-        });
-
-      // Safety net: never hang longer than the clip length + 5s
-      const maxMs = Math.max(1000, (end - start) * 1000 + 5000);
-      setTimeout(finish, maxMs);
-    } catch (e) {
-      stopClip();
-      reject(new AudioServiceError(
-        `Failed to play clip: ${e instanceof Error ? e.message : String(e)}`
-      ));
+  // Toggling the currently-active button
+  if (activeKey === key && _clipPlayer) {
+    if (status === 'playing') {
+      _clipPlayer.pause();
+      setPreviewState(key, 'paused');
+    } else if (status === 'paused') {
+      _clipPlayer.play();
+      setPreviewState(key, 'playing');
     }
-  });
-}
-
-/**
- * Plays the original audio for a saved item. Prefers the item's extracted
- * clip file (which survives source deletion); falls back to slicing the
- * source audio file. Throws when neither is available.
- */
-export async function playSavedItemAudio(
-  item: Pick<SavedItem, 'clipUri' | 'audioFileId' | 'startTime' | 'endTime'>
-): Promise<void> {
-  if (item.clipUri) {
-    // Clip files already include pre/post padding — play them whole.
-    await playClip(item.clipUri, 0, item.endTime - item.startTime + 1);
     return;
   }
+
+  // Starting a new preview — tear down any previous preview and pause main
+  log.info('audio', 'preview controller: v4-debug'); // bundle version marker
+  stopPreview();
+  _player?.pause();
+
+  const safeStart = Math.max(0, start);
+  let safeEnd = end;
+  if (!(safeEnd > safeStart)) safeEnd = safeStart + 3; // bad bounds fallback
+  if (safeEnd - safeStart > MAX_CLIP_SECONDS) {
+    log.warn('audio', `clip bounds too long (${safeStart.toFixed(1)}–${safeEnd.toFixed(1)}s) — clamping to ${MAX_CLIP_SECONDS}s. Likely a timestamp issue.`);
+    safeEnd = safeStart + MAX_CLIP_SECONDS;
+  }
+  log.info('audio', `preview ${key} start: requested ${start.toFixed(2)}–${end.toFixed(2)}s → playing ${safeStart.toFixed(2)}–${safeEnd.toFixed(2)}s of ${uri.split('/').pop()}`);
+
+  try {
+    const player = createAudioPlayer({ uri }, { updateInterval: 50 });
+    _clipPlayer = player;
+    setPreviewState(key, 'loading');
+
+    let started = false;
+    let ticks = 0;
+    _clipSubscription = player.addListener('playbackStatusUpdate', (s: AudioStatus) => {
+      // DEBUG: trace the first ticks so we can see WHERE playback actually is
+      if (ticks < 8) {
+        ticks++;
+        log.info('audio', `tick#${ticks}: currentTime=${s.currentTime?.toFixed?.(2)}s playing=${s.playing} isLoaded=${s.isLoaded} started=${started}`);
+      }
+      if (!s.isLoaded || !started) return;
+      if (s.didJustFinish || s.currentTime >= safeEnd) {
+        log.info('audio', `preview stop: currentTime=${s.currentTime.toFixed(2)}s, end=${safeEnd.toFixed(2)}s, didJustFinish=${s.didJustFinish}`);
+        stopPreview();
+      }
+    });
+
+    // CRITICAL: seekTo() before the source finishes loading is silently
+    // ignored — playback would start at 0:00 (the podcast intro). Wait for
+    // the player to report loaded, THEN seek, THEN play.
+    void (async () => {
+      let loaded = false;
+      for (let i = 0; i < 100; i++) { // up to ~5s
+        if (_clipPlayer !== player) return; // superseded
+        if (player.currentStatus.isLoaded) { loaded = true; break; }
+        await new Promise(r => setTimeout(r, 50));
+      }
+      if (_clipPlayer !== player) return;
+      if (!loaded) {
+        log.warn('audio', 'preview source never loaded — giving up');
+        stopPreview();
+        return;
+      }
+      log.info('audio', `preview loaded: file duration=${player.currentStatus.duration.toFixed(2)}s, seeking to ${safeStart.toFixed(2)}s, will stop at ${safeEnd.toFixed(2)}s`);
+      await player.seekTo(safeStart);
+      if (_clipPlayer !== player) return;
+      // DEBUG: where does the player think it is right after the seek?
+      log.info('audio', `after seekTo(${safeStart.toFixed(2)}): currentTime=${player.currentStatus.currentTime?.toFixed?.(2)}s`);
+      started = true;
+      player.play();
+      setPreviewState(key, 'playing');
+      // Safety net armed only once playback actually starts
+      _clipTimeout = setTimeout(stopPreview, (safeEnd - safeStart) * 1000 + 2000);
+    })().catch(() => stopPreview());
+  } catch (e) {
+    stopPreview();
+    throw new AudioServiceError(
+      `Failed to play clip: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+}
+
+/**
+ * Toggles the original-audio preview for a saved item. Prefers the item's
+ * extracted clip file (survives source deletion); falls back to the source
+ * file sliced to [start,end]. Throws when neither is available.
+ */
+export async function toggleSavedItemPreview(
+  key: string,
+  item: Pick<SavedItem, 'clipUri' | 'audioFileId' | 'startTime' | 'endTime' | 'contextSentence'>
+): Promise<void> {
+  // If toggling the active button, no need to resolve the source again.
+  if (usePreviewStore.getState().activeKey === key && _clipPlayer) {
+    togglePreview(key, '', 0, 0); // uri/bounds ignored on toggle path
+    return;
+  }
+  log.info('audio', `saved item ${key}: startTime=${item.startTime}s endTime=${item.endTime}s clipUri=${item.clipUri ? 'yes' : 'no'} audioFileId=${item.audioFileId}`);
+
+  // Best source: locate the "From the podcast" sentence by TEXT in the
+  // transcript — guaranteed to play exactly what the user sees, regardless
+  // of whether the item's stored timestamps are trustworthy.
   if (item.audioFileId !== null) {
     const file = await getAudioFile(item.audioFileId);
     if (file) {
-      // Pad slightly so the phrase isn't cut off mid-word
-      await playClip(file.uri, Math.max(0, item.startTime - 0.3), item.endTime + 0.4);
+      const bounds = await findSentenceBounds(item.audioFileId, item.contextSentence)
+        .catch(() => null);
+      const start = bounds ? bounds.start : item.startTime;
+      const end = bounds ? bounds.end : item.endTime;
+      if (!bounds) {
+        log.warn('audio', 'sentence not found in transcript — falling back to stored item times');
+      }
+      togglePreview(key, file.uri, Math.max(0, start - 0.3), end + 0.4);
       return;
     }
+  }
+  // Source file deleted — fall back to the extracted clip (phrase-only).
+  if (item.clipUri) {
+    // Clip files already include pre/post padding — play them whole.
+    togglePreview(key, item.clipUri, 0, item.endTime - item.startTime + 1);
+    return;
   }
   throw new AudioServiceError('The source audio is no longer available.');
 }

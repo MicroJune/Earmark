@@ -3,6 +3,7 @@ import type { WhisperModelName } from '../settings';
 import { getModelPath, isModelDownloaded, getModelInfo } from './models';
 import { decodeToWhisperWav, deleteTempWav } from './audioDecoder';
 import { log } from '../../utils/logger';
+import { isLocalEngineSupported } from './support';
 
 // ─── On-device Whisper (whisper.cpp via whisper.rn) ───────────────────────────
 // Runs fully offline once a model is downloaded. whisper.rn is a native module,
@@ -17,6 +18,14 @@ export class LocalWhisperError extends Error {
 }
 
 function loadWhisperRn(): any {
+  // Short-circuit BEFORE require(): in Expo Go a failed native install
+  // reports a fatal LogBox error that escapes try/catch.
+  if (!isLocalEngineSupported()) {
+    throw new LocalWhisperError(
+      'On-device transcription is not available in Expo Go — it needs the development build of this app ' +
+      '(see OFFLINE_SETUP.md). Until then, switch to the Cloud engine in Settings.'
+    );
+  }
   let mod: any = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

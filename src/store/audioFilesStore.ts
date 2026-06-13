@@ -7,6 +7,7 @@ import {
   updateAudioFileStatus,
   updateAudioFileDuration,
   updateAudioFileTitle,
+  setAudioFileSortOrders,
 } from '../db/queries/audioFiles';
 import {
   getAllCategories,
@@ -37,6 +38,8 @@ interface AudioFilesStore {
   updateCategoryName: (id: number, name: string) => Promise<void>;
   removeCategory: (id: number) => Promise<void>;
   moveFilesToCategory: (fileIds: number[], categoryId: number | null) => Promise<void>;
+  // Persist a manual ordering (array index = position) for a category's files.
+  reorderFiles: (orderedIds: number[]) => Promise<void>;
 }
 
 export const useAudioFilesStore = create<AudioFilesStore>((set, get) => ({
@@ -133,6 +136,16 @@ export const useAudioFilesStore = create<AudioFilesStore>((set, get) => ({
     set(state => ({
       audioFiles: state.audioFiles.map(f =>
         moved.has(f.id) ? { ...f, categoryId } : f
+      ),
+    }));
+  },
+
+  reorderFiles: async (orderedIds) => {
+    await setAudioFileSortOrders(orderedIds);
+    const orderOf = new Map(orderedIds.map((id, i) => [id, i]));
+    set(state => ({
+      audioFiles: state.audioFiles.map(f =>
+        orderOf.has(f.id) ? { ...f, sortOrder: orderOf.get(f.id)! } : f
       ),
     }));
   },

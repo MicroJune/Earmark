@@ -4,17 +4,24 @@ import {
   ActivityIndicator, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/colors';
-import type { PhraseSuggestion, SavedItemType } from '../types';
-import { getPhraseSuggestions, clearPhraseSuggestions } from '../services/claude';
-import { getApiKeys } from '../services/config';
+import type { PhraseSuggestion, SavedItemType, Segment } from '../types';
+import { getPhraseSuggestions, fetchMoreSuggestions } from '../services/suggestions';
+import { getSuggestionDensity, setSuggestionDensity, type SuggestionDensity } from '../services/settings';
 import { getSegmentsByAudioFile } from '../db/queries/segments';
 import { useLibraryStore } from '../store/libraryStore';
 import { seekTo } from '../services/audio';
 import { formatDuration } from '../utils/timeFormat';
 
+const DENSITY_OPTIONS: Array<{ value: SuggestionDensity; label: string }> = [
+  { value: 'low', label: '低 · 2/分钟' },
+  { value: 'medium', label: '中 · 8/分钟' },
+  { value: 'high', label: '高 · 14/分钟' },
+];
+
 // ─── AI phrase suggestions overlay ────────────────────────────────────────────
-// Lists Claude-suggested phrases for the current file. Each can be saved to the
+// Lists AI-suggested phrases for the current file. Each can be saved to the
 // library with one tap; tapping the timestamp jumps playback to that moment.
 
 function inferType(text: string): SavedItemType {
@@ -62,50 +69,81 @@ export default function SuggestionsModal({
   onClose: () => void;
   audioFileId: number;
 }) {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<PhraseSuggestion[]>([]);
   const [savedTexts, setSavedTexts] = useState<Set<string>>(new Set());
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [density, setDensity] = useState<SuggestionDensity>('medium');
+  const [noMoreFound, setNoMoreFound] = useState(false);
 
   const libraryItems = useLibraryStore(s => s.items);
   const addItem = useLibraryStore(s => s.addItem);
 
-  const load = useCallback(async (forceRefresh = false) => {
+  // Phrases the user already saved for this file — shown as "Saved" and
+  // excluded when asking the AI for more.
+  const librarySavedTexts = useCallback(() =>
+    libraryItems
+      .filter(i => i.audioFileId === audioFileId)
+      .map(i => i.text),
+  [libraryItems, audioFileId]);
+
+  const markSaved = useCallback((result: PhraseSuggestion[]) => {
+    const existing = new Set(librarySavedTexts().map(t => t.toLowerCase()));
+    setSavedTexts(new Set(result.filter(s => existing.has(s.text.toLowerCase())).map(s => s.text)));
+  }, [librarySavedTexts]);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setNoMoreFound(false);
     try {
-      const keys = await getApiKeys();
-      if (!keys?.anthropicApiKey) {
-        setError(
-          'AI suggestions need an Anthropic API key and an internet connection. ' +
-          'Add a key in Settings on the Home screen. Everything else in the app works offline.'
-        );
-        return;
-      }
-      if (forceRefresh) await clearPhraseSuggestions(audioFileId);
-      const segments = await getSegmentsByAudioFile(audioFileId);
-      const result = await getPhraseSuggestions(audioFileId, segments, keys.anthropicApiKey);
+      const segs = await getSegmentsByAudioFile(audioFileId);
+      setSegments(segs);
+      // Provider + key resolution + clear errors happen inside getPhraseSuggestions → ai.ts
+      const result = await getPhraseSuggestions(audioFileId, segs);
       setSuggestions(result);
-
-      // Mark phrases that are already in the library as saved
-      const existing = new Set(
-        libraryItems
-          .filter(i => i.audioFileId === audioFileId)
-          .map(i => i.text.toLowerCase())
-      );
-      setSavedTexts(new Set(result.filter(s => existing.has(s.text.toLowerCase())).map(s => s.text)));
+      markSaved(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to get suggestions');
     } finally {
       setLoading(false);
     }
-  }, [audioFileId, libraryItems]);
+  }, [audioFileId, markSaved]);
+
+  // "Find more": fetch another batch excluding everything already shown/saved.
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const before = suggestions.length;
+      const combined = await fetchMoreSuggestions(audioFileId, segments, librarySavedTexts());
+      setSuggestions(combined);
+      markSaved(combined);
+      setNoMoreFound(combined.length === before);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to get suggestions');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [audioFileId, segments, suggestions.length, librarySavedTexts, markSaved]);
 
   useEffect(() => {
-    if (visible) void load();
-    else { setSuggestions([]); setError(null); }
+    if (visible) {
+      void getSuggestionDensity().then(setDensity);
+      void load();
+    } else {
+      setSuggestions([]); setError(null); setNoMoreFound(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  const handleDensity = (d: SuggestionDensity) => {
+    setDensity(d);
+    void setSuggestionDensity(d);
+  };
 
   const handleSave = async (s: PhraseSuggestion) => {
     try {
@@ -131,28 +169,40 @@ export default function SuggestionsModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.modal}>
+      {/* Keep the header clear of the status bar (Android edge-to-edge) */}
+      <View style={[styles.modal, { paddingTop: Math.max(insets.top, 12) }]}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Ionicons name="sparkles" size={18} color={COLORS.primary} />
             <Text style={styles.title}>Suggested phrases</Text>
           </View>
           <View style={styles.headerActions}>
-            {!loading && suggestions.length > 0 && (
-              <Pressable onPress={() => load(true)} hitSlop={8}>
-                <Ionicons name="refresh" size={20} color={COLORS.textSecondary} />
-              </Pressable>
-            )}
             <Pressable onPress={onClose} hitSlop={8}>
               <Ionicons name="close" size={24} color={COLORS.text} />
             </Pressable>
           </View>
         </View>
 
+        {/* 建议密度:作用于下一次生成/找更多 */}
+        <View style={styles.densityRow}>
+          <Text style={styles.densityLabel}>密度</Text>
+          {DENSITY_OPTIONS.map(o => (
+            <Pressable
+              key={o.value}
+              style={[styles.densityChip, density === o.value && styles.densityChipActive]}
+              onPress={() => handleDensity(o.value)}
+            >
+              <Text style={[styles.densityChipText, density === o.value && styles.densityChipTextActive]}>
+                {o.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
         {loading && (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.loadingText}>Asking Claude for phrases worth learning…</Text>
+            <Text style={styles.loadingText}>AI 正在通读全文,挑选值得学的短语…</Text>
           </View>
         )}
 
@@ -176,6 +226,24 @@ export default function SuggestionsModal({
               />
             )}
             contentContainerStyle={styles.list}
+            ListFooterComponent={
+              suggestions.length > 0 ? (
+                <View style={styles.footer}>
+                  {noMoreFound && (
+                    <Text style={styles.noMoreText}>这一集里没有找到更多新短语了</Text>
+                  )}
+                  <Pressable style={styles.moreBtn} onPress={loadMore} disabled={loadingMore}>
+                    {loadingMore
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Ionicons name="sparkles" size={15} color="#fff" />}
+                    <Text style={styles.moreBtnText}>
+                      {loadingMore ? '正在找更多…' : '找更多短语(不会重复)'}
+                    </Text>
+                  </Pressable>
+                  <Text style={styles.footerCount}>已建议 {suggestions.length} 条</Text>
+                </View>
+              ) : null
+            }
           />
         )}
       </View>
@@ -210,4 +278,17 @@ const styles = StyleSheet.create({
 
   jumpBtn:      { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
   jumpText:     { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+
+  densityRow:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingBottom: 10 },
+  densityLabel:     { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600', marginRight: 2 },
+  densityChip:      { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  densityChipActive:{ borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  densityChipText:  { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
+  densityChipTextActive: { color: COLORS.primary },
+
+  footer:       { alignItems: 'center', paddingVertical: 16, gap: 8 },
+  noMoreText:   { fontSize: 12, color: COLORS.textSecondary },
+  moreBtn:      { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primary, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  moreBtnText:  { color: '#fff', fontSize: 13, fontWeight: '700' },
+  footerCount:  { fontSize: 11, color: COLORS.textSecondary },
 });
