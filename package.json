@@ -24,6 +24,7 @@
     "expo-speech": "~56.0.3",
     "expo-sqlite": "~56.0.5",
     "expo-status-bar": "~56.0.4",
+    "expo-updates": "~56.0.19",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-audio-api": "^0.12.2",
