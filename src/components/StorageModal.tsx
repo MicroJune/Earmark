@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/colors';
 import { useAudioFilesStore } from '../store/audioFilesStore';
-import { deleteAudioFileKeepingCards, previewAudioFileDeletion } from '../services/fileDeletion';
+import { deleteAudioFileAndItems, previewAudioFileDeletion } from '../services/fileDeletion';
 import { getClipsStorageBytes } from '../services/clips';
 
 // ─── Storage management ───────────────────────────────────────────────────────
@@ -87,25 +87,23 @@ export default function StorageModal({
 
   const handleRemoveAudio = async (row: FileRow) => {
     const preview = await previewAudioFileDeletion(row.id);
-    const clipNote = preview.savedItemCount === 0
-      ? ''
-      : preview.clipsWillBeExtracted
-        ? `\n\nYour ${preview.savedItemCount} saved phrase${preview.savedItemCount > 1 ? 's' : ''} stay reviewable — audio clips are extracted first.`
-        : `\n\nYour ${preview.savedItemCount} saved phrase${preview.savedItemCount > 1 ? 's' : ''} are kept, but clips can't be extracted in Expo Go — their original audio will be lost.`;
+    const phraseNote = preview.savedItemCount > 0
+      ? `\n\nIts ${preview.savedItemCount} saved word${preview.savedItemCount > 1 ? 's' : ''}/phrase${preview.savedItemCount > 1 ? 's' : ''} will also be deleted and cannot be recovered.`
+      : '';
     Alert.alert(
-      `Free up ${formatBytes(row.sizeBytes)}`,
-      `"${row.title}" and its transcript will be removed.${clipNote}`,
+      `Delete "${row.title}"?`,
+      `Frees ${formatBytes(row.sizeBytes)}. The audio and transcript will be removed.${phraseNote}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove audio',
+          text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             setBusyId(row.id);
             try {
-              await deleteAudioFileKeepingCards(row.id);
+              await deleteAudioFileAndItems(row.id);
             } catch (e) {
-              Alert.alert('Failed', e instanceof Error ? e.message : 'Could not remove the file');
+              Alert.alert('Failed', e instanceof Error ? e.message : 'Could not delete the file');
             } finally {
               setBusyId(null);
             }
@@ -141,8 +139,8 @@ export default function StorageModal({
             <Text style={styles.totalValue}>{formatBytes(clipsBytes)}</Text>
           </View>
           <Text style={styles.hint}>
-            Models can be removed in Settings → Whisper model. Removing an episode below keeps
-            its saved phrases reviewable.
+            Models can be removed in Settings → Whisper model. Deleting an episode below also
+            deletes the words/phrases you saved from it.
           </Text>
         </View>
 
@@ -164,7 +162,7 @@ export default function StorageModal({
                 disabled={busyId !== null}
               >
                 <Text style={styles.removeBtnText}>
-                  {busyId === item.id ? 'Removing…' : 'Remove audio'}
+                  {busyId === item.id ? 'Deleting…' : 'Delete'}
                 </Text>
               </Pressable>
             </View>

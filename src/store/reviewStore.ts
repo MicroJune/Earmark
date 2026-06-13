@@ -1,24 +1,52 @@
 import { create } from 'zustand';
-import type { SavedItem, ReviewMode, ReviewSession, MasteryLevel } from '../types';
+import type { SavedItem, ReviewMode, ReviewCard, ReviewSession, ReviewGrade } from '../types';
 import { getDueForReview } from '../db/queries/savedItems';
 import { logReview } from '../db/queries/reviewLog';
 import { useLibraryStore } from './libraryStore';
-import { nextMastery, nextReviewAt, shuffle } from '../utils/spacedRepetition';
+import { computeSrs, shuffle } from '../utils/spacedRepetition';
 
-// ─── Store ────────────────────────────────────────────────────────────────────
+// ─── Per-item mode assignment (interleaving + desirable difficulty) ───────────
+// The review mode is chosen per item from its mastery, so harder retrieval is
+// asked of better-known items, and a single session interleaves all modes:
+//   new      → recognition (flashcard or listen-identify)
+//   learning → listen-identify (multiple choice)
+//   mastered → fill-in-blank (production / typing — hardest)
+// Items without a usable audio clip can't do listen-identify, so they fall
+// back to flashcard.
+function pickMode(item: SavedItem, index: number): ReviewMode {
+  const hasAudio = item.clipUri !== null || item.audioFileId !== null;
+  switch (item.mastery) {
+    case 'mastered':
+      return 'fill-in-blank';
+    case 'learning':
+      return hasAudio ? 'listen-identify' : 'fill-in-blank';
+    case 'new':
+    default:
+      // Alternate within new items so it's not all flashcards.
+      if (hasAudio && index % 2 === 1) return 'listen-identify';
+      return 'flashcard';
+  }
+}
+
+function buildQueue(items: SavedItem[]): ReviewCard[] {
+  return shuffle(items).map((item, i) => ({ item, mode: pickMode(item, i) }));
+}
+
+// Maps a graded answer to a correct/incorrect tally for session stats.
+function isPositive(grade: ReviewGrade): boolean {
+  return grade === 'good' || grade === 'easy';
+}
 
 interface ReviewStore {
   session: ReviewSession | null;
   isLoading: boolean;
   error: string | null;
 
-  // Start a session. If items are not provided, loads all due items from DB.
-  startSession: (mode: ReviewMode, items?: SavedItem[]) => Promise<void>;
+  // Start a smart-mixed session. If items aren't provided, loads all due items.
+  startSession: (items?: SavedItem[]) => Promise<void>;
 
-  // Mark the current item correct or incorrect, advance to next item.
-  // Updates mastery + schedules next review in DB via libraryStore.
-  answerCorrect: () => Promise<void>;
-  answerIncorrect: () => Promise<void>;
+  // Grade the current card (SM-2), persist, and advance.
+  grade: (grade: ReviewGrade) => Promise<void>;
 
   skipItem: () => void;
   endSession: () => void;
@@ -29,14 +57,13 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   isLoading: false,
   error: null,
 
-  startSession: async (mode, items) => {
+  startSession: async (items) => {
     set({ isLoading: true, error: null });
     try {
-      const queue = shuffle(items ?? (await getDueForReview()));
+      const source = items ?? (await getDueForReview());
       set({
         session: {
-          mode,
-          queue,
+          queue: buildQueue(source),
           currentIndex: 0,
           correctCount: 0,
           incorrectCount: 0,
@@ -49,53 +76,25 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
     }
   },
 
-  answerCorrect: async () => {
+  grade: async (grade) => {
     const { session } = get();
     if (!session) return;
+    const card = session.queue[session.currentIndex];
+    if (!card) return;
 
-    const item = session.queue[session.currentIndex];
-    if (!item) return;
-    const newMastery = nextMastery(item.mastery, true);
-    const nextReview = nextReviewAt(newMastery);
-
-    await useLibraryStore.getState().updateMastery(item.id, newMastery);
-    await useLibraryStore.getState().scheduleReview(item.id, nextReview);
-    void logReview(item.id, true);
+    const srs = computeSrs(card.item, grade);
+    await useLibraryStore.getState().applySrs(card.item.id, srs);
+    void logReview(card.item.id, isPositive(grade));
 
     set(state => {
       if (!state.session) return {};
-      const currentIndex = state.session.currentIndex + 1;
+      const positive = isPositive(grade);
       return {
         session: {
           ...state.session,
-          currentIndex,
-          correctCount: state.session.correctCount + 1,
-        },
-      };
-    });
-  },
-
-  answerIncorrect: async () => {
-    const { session } = get();
-    if (!session) return;
-
-    const item = session.queue[session.currentIndex];
-    if (!item) return;
-    const newMastery = nextMastery(item.mastery, false);
-    const nextReview = nextReviewAt(newMastery);
-
-    await useLibraryStore.getState().updateMastery(item.id, newMastery);
-    await useLibraryStore.getState().scheduleReview(item.id, nextReview);
-    void logReview(item.id, false);
-
-    set(state => {
-      if (!state.session) return {};
-      const currentIndex = state.session.currentIndex + 1;
-      return {
-        session: {
-          ...state.session,
-          currentIndex,
-          incorrectCount: state.session.incorrectCount + 1,
+          currentIndex: state.session.currentIndex + 1,
+          correctCount: state.session.correctCount + (positive ? 1 : 0),
+          incorrectCount: state.session.incorrectCount + (positive ? 0 : 1),
         },
       };
     });
@@ -105,10 +104,7 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
     set(state => {
       if (!state.session) return {};
       return {
-        session: {
-          ...state.session,
-          currentIndex: state.session.currentIndex + 1,
-        },
+        session: { ...state.session, currentIndex: state.session.currentIndex + 1 },
       };
     });
   },

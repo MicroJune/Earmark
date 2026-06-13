@@ -25,7 +25,7 @@ function HomeStackNavigator() {
       <HomeStack.Screen
         name="HomeScreen"
         component={HomeScreen}
-        options={{ title: 'My Podcasts' }}
+        options={{ title: 'Earmark' }}
       />
       <HomeStack.Screen
         name="CategoryView"

@@ -17,6 +17,10 @@ interface SavedItemRow {
   enrichment: string | null; // JSON-serialized ItemEnrichment
   clip_uri: string | null;
   source_title: string | null;
+  note: string | null;
+  ease_factor: number;
+  interval_days: number;
+  review_count: number;
 }
 
 function parseEnrichment(json: string | null): ItemEnrichment | null {
@@ -43,13 +47,17 @@ function rowToSavedItem(row: SavedItemRow): SavedItem {
     enrichment: parseEnrichment(row.enrichment),
     clipUri: row.clip_uri,
     sourceTitle: row.source_title,
+    note: row.note,
+    easeFactor: row.ease_factor,
+    intervalDays: row.interval_days,
+    reviewCount: row.review_count,
   };
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 export async function insertSavedItem(
-  data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri'>
+  data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount'>
 ): Promise<number> {
   const db = await getDb();
   const result = await db.runAsync(
@@ -146,6 +154,20 @@ export async function updateMastery(id: number, mastery: MasteryLevel): Promise<
   );
 }
 
+/** Persists the full SM-2 state after a review grade. */
+export async function updateSrsState(
+  id: number,
+  state: { easeFactor: number; intervalDays: number; reviewCount: number; nextReview: number; mastery: MasteryLevel }
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE saved_items
+     SET ease_factor = ?, interval_days = ?, review_count = ?, next_review = ?, mastery = ?
+     WHERE id = ?`,
+    [state.easeFactor, state.intervalDays, state.reviewCount, state.nextReview, state.mastery, id]
+  );
+}
+
 export async function updateEnrichment(
   id: number,
   enrichment: ItemEnrichment
@@ -154,6 +176,14 @@ export async function updateEnrichment(
   await db.runAsync(
     'UPDATE saved_items SET enrichment = ? WHERE id = ?',
     [JSON.stringify(enrichment), id]
+  );
+}
+
+export async function updateNote(id: number, note: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'UPDATE saved_items SET note = ? WHERE id = ?',
+    [note.trim() || null, id]
   );
 }
 

@@ -21,6 +21,16 @@ interface CharIndex {
   text: string;        // concatenated normalized chars of all words
   wordAt: number[];    // wordAt[charPos] → index into times[]
   times: WordTime[];
+  raw: string[];       // raw word text parallel to times[] (for debug logging)
+}
+
+// Reconstructs the transcript words covering a normalized-char range — used to
+// log what audio a match will ACTUALLY play, so we can compare it to what the
+// UI shows.
+function spanText(index: CharIndex, fromChar: number, toChar: number): string {
+  const fromWord = index.wordAt[fromChar];
+  const toWord = index.wordAt[Math.min(toChar, index.wordAt.length - 1)];
+  return index.raw.slice(fromWord, toWord + 1).join(' ');
 }
 
 // Cache per file — detail views often play repeatedly.
@@ -39,17 +49,19 @@ async function getIndex(audioFileId: number): Promise<CharIndex> {
   let text = '';
   const wordAt: number[] = [];
   const times: WordTime[] = [];
+  const raw: string[] = [];
   for (const w of words) {
     const chars = normalizeChars(w.word);
     if (!chars) continue;
     const idx = times.length;
     times.push({ start: w.start, end: w.end });
+    raw.push(w.word);
     for (let i = 0; i < chars.length; i++) wordAt.push(idx);
     text += chars;
   }
-  _cacheIndex = { text, wordAt, times };
+  _cacheIndex = { text, wordAt, times, raw };
   _cacheFileId = audioFileId;
-  log.info('sentenceLocator', `index built for file ${audioFileId}: ${words.length} words → ${text.length} chars`);
+  log.debug('sentenceLocator', `index built for file ${audioFileId}: ${words.length} words → ${text.length} chars`);
   return _cacheIndex;
 }
 
@@ -70,11 +82,15 @@ export async function findSentenceBounds(
   if (index.text.length === 0) return null;
 
   // 1) Exact char-stream match of the whole sentence
+  log.debug('sentenceLocator', `looking for: "${sentence.slice(0, 80)}" (normalized ${target.length} chars)`);
   const exactAt = index.text.indexOf(target);
+  // Detect ambiguity: the same text appearing more than once means indexOf
+  // may have picked the wrong occurrence.
+  const secondAt = exactAt >= 0 ? index.text.indexOf(target, exactAt + 1) : -1;
   if (exactAt >= 0) {
     const first = index.times[index.wordAt[exactAt]];
     const last = index.times[index.wordAt[exactAt + target.length - 1]];
-    log.info('sentenceLocator', `exact match at char ${exactAt} → ${first.start.toFixed(2)}–${last.end.toFixed(2)}s`);
+    log.debug('sentenceLocator', `exact match at char ${exactAt} → ${first.start.toFixed(2)}–${last.end.toFixed(2)}s | transcript span: "${spanText(index, exactAt, exactAt + target.length - 1)}"${secondAt >= 0 ? ' | text appears more than once' : ''}`);
     return { start: first.start, end: last.end };
   }
 
@@ -101,6 +117,6 @@ export async function findSentenceBounds(
   const tailEstimate = ((target.length - prefixLen) / prefixLen) * matchedDuration;
   const end = lastMatched.end + Math.min(10, tailEstimate);
 
-  log.info('sentenceLocator', `prefix match ${prefixLen}/${target.length} chars → ${first.start.toFixed(2)}–${end.toFixed(2)}s (tail estimated)`);
+  log.debug('sentenceLocator', `prefix match ${prefixLen}/${target.length} chars → ${first.start.toFixed(2)}–${end.toFixed(2)}s (tail estimated) | transcript span: "${spanText(index, at, at + prefixLen - 1)}"`);
   return { start: first.start, end };
 }

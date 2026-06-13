@@ -1,94 +1,160 @@
-# Earmark
+# Earmark 🎧
 
-To better learn English via podcasts — capture words/phrases you hear, with translation, pronunciation and spaced-repetition review. (Expo slug: `postcast-assistant`)
+**Learn English from the podcasts you already listen to.** Import an audio file,
+get a word-synced transcript, tap to save the words and phrases you hear, and
+review them with spaced repetition — fully offline, on your phone.
 
-## 日常开发启动
+> *ear + mark — to set aside what you hear.*
 
-```bash
-# 终端 1:启动 Metro(装了 expo-dev-client 后默认对应 dev build / Earmark App)
-cd ~/projects/go-podcast-assistant
-npx expo start --localhost        # USB 模式
-# 或 npx expo start --lan         # 同一 WiFi 模式(镜像网络已配好)
-# 临时用 Expo Go 时加 --go
-
-# 终端 2(USB 模式):架转发 + 拉起 App
-bash scripts/usb-expo-go.sh       # Expo Go 用这个
-# dev build(Earmark)则直接在手机上打开 App,选 http://localhost:8081
-```
+中文简介:Earmark 是一款帮助中文母语者通过播客学英语的开源 App。导入本地音频
+→ 离线转写出逐词对齐的文稿 → 点选生词/短语保存(带原句、原声、翻译)→ 用
+间隔重复(SM‑2)复习。转写与词典完全离线,无需账号、无后端、数据只存在你手机上。
 
 ---
 
-## USB 连接排查手册(按顺序检查)
+## Why
 
-> 本机架构:**USB 设备只有 Windows 看得到**,所以 adb server 必须跑在 Windows;
-> WSL 是镜像网络(mirrored networking),与 Windows 共享 localhost,
-> WSL 里的 adb 永远只做客户端:`ADB_SERVER_SOCKET=tcp:localhost:5037`。
-> **两边同时起 adb server 就会抢 5037 端口,这是大多数问题的根源。**
+Listening to English podcasts is great input, but useful words and phrases fly
+by and are forgotten minutes later. Earmark turns passive listening into active
+vocabulary: it transcribes your own audio, lets you capture phrases *in context*,
+and brings them back at the right time for review.
 
-### 第 1 步:重置两边的 adb(治好 80% 的问题)
+It is **offline-first** and **private**: transcription runs on-device, your audio
+never leaves the phone, there's no account and no server.
 
-```powershell
-# Windows PowerShell:
-wsl -d Ubuntu-22.04 -- bash -lc "pkill -9 adb"   # 杀掉 WSL 里偷跑的 server
-adb kill-server
-adb start-server
-adb devices -l
-```
+## Features
 
-### 第 2 步:按 `adb devices` 的输出对症下药
+- **🎙 On-device transcription** — whisper.cpp running locally produces word-level
+  timestamps, so the spoken word highlights in real time as the audio plays.
+  Works in airplane mode. An optional cloud engine (火山引擎 豆包 ASR) is available too.
+- **📂 Categories** — organize files into folders; search, sort (by name / date /
+  size / custom drag order), batch transcribe, and multi-select move/delete.
+- **👆 Capture in context** — tap any word to seek; tap-and-drag to select a phrase
+  or whole sentence; save it with its surrounding sentence, timestamp and the
+  original audio clip.
+- **📖 Offline dictionary** — tap a single word for an instant CN–EN definition
+  (bundled ECDICT), no network needed.
+- **🧠 Spaced-repetition review** — a single "today's review" session that
+  interleaves three retrieval modes (flashcard, fill-in-the-blank, listen &
+  identify), auto-chosen per item by mastery, scheduled with an **SM-2** 4-grade
+  algorithm (Again / Hard / Good / Easy). Reviewing plays the **original podcast
+  audio** of each phrase.
+- **🔊 Pronunciation** — neural TTS (火山引擎 豆包 voices, US/UK/AU) with a system-TTS
+  fallback; synthesized audio is cached on disk for offline replay.
+- **✨ AI learning notes & suggestions** (optional) — translation, synonyms,
+  example sentences, and "phrases worth learning" picked from a transcript, via
+  豆包 (火山方舟) or DeepSeek. Online-only, opt-in, cached per item.
+- **🎵 Background playback** — lock-screen / notification media controls and
+  resume-where-you-left-off.
+- **💾 Your data, your control** — JSON backup export/import (merge-safe), a
+  storage manager, and a daily review reminder. API keys live only in the
+  device's secure storage and are never hardcoded or uploaded.
 
-| 输出 | 含义 | 解决 |
-|---|---|---|
-| `XXXX device` | ✅ 一切正常 | 没问题,继续干活 |
-| **空列表** | Windows 没识别到调试接口 | ① 检查手机「开发者选项 → USB 调试」已开;② 换一根数据线(有些线只能充电);③ `Get-PnpDevice -PresentOnly \| Where-Object { $_.FriendlyName -match 'ADB\|vivo\|Android' }` 看 Windows 是否枚举到 `ADB Interface`,没有则是驱动/线/接口问题 |
-| `XXXX unauthorized` | 手机没信任这台电脑(重置 adb 后密钥变新,常见) | 看手机屏幕弹出的「允许 USB 调试吗?」→ 勾选**始终允许** → 确定。**没弹窗**就:手机「开发者选项 → 撤销 USB 调试授权」→ 拔插 USB 线 → 必弹 |
-| `XXXX offline` | 连接挂死 | 拔插 USB 线;不行就回到第 1 步 |
-| `could not read ok from ADB Server` / `failed to start daemon` / `Address already in use` | **5037 端口被抢**(两边都想当 server) | 回到第 1 步;确认 WSL 里没有裸跑 `adb` 的进程 |
+## Screenshots
 
-### 第 3 步:验证 WSL 能通过 Windows 的 server 看到设备
+> _Add screenshots here, e.g._
+> `docs/screenshots/home.png`, `content-view.png`, `review.png`, `library.png`.
 
-```bash
-# WSL 里(注意必须带前缀,裸跑 adb 会自己起 server 撞端口!):
-ADB_SERVER_SOCKET=tcp:localhost:5037 adb devices
-```
+## Tech stack
 
-能看到 `device` 状态即链路全通。建议把这行写进 `~/.bashrc` 一劳永逸:
-
-```bash
-echo 'export ADB_SERVER_SOCKET=tcp:localhost:5037' >> ~/.bashrc
-```
-
-### 第 4 步:架 USB 端口转发并启动
-
-```bash
-# WSL(或直接跑 scripts/usb-expo-go.sh,它包含了这些步骤):
-export ADB_SERVER_SOCKET=tcp:localhost:5037
-adb reverse tcp:8081 tcp:8081
-adb reverse --list        # 应显示:UsbFfs tcp:8081 tcp:8081(UsbFfs = 走 USB)
-bash scripts/usb-expo-go.sh
-```
-
-- **Expo Go**:`adb shell am start -a android.intent.action.VIEW -d "exp://127.0.0.1:8081" host.exp.exponent`
-- **dev build(Earmark)**:手机上直接打开 Earmark,开发菜单里选 `http://localhost:8081`
-
-### 已踩过的坑速查
-
-| 症状 | 原因 / 解法 |
+| Area | Choice |
 |---|---|
-| `expo start` 按 `a` 报 `Android SDK path not found` / `android.package not found` | 正常——WSL 没装 Android SDK。不要按 `a`,用上面的 adb 命令直接拉起 App |
-| 扫码后卡 "Bundling 99%" | 走了 tunnel(ngrok 国内慢)。改用 `--localhost`(USB)或 `--lan`(同一 WiFi) |
-| LAN 模式手机连不上电脑 | Windows 防火墙。管理员 PowerShell:`New-NetFirewallRule -DisplayName "Expo Metro 8081" -Direction Inbound -Protocol TCP -LocalPort 8081 -Action Allow` 以及镜像模式专用:`Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -DefaultInboundAction Allow` |
-| Expo Go 一进就崩/红屏 | 多半是依赖版本和 Expo Go 内置原生代码不匹配:`npx expo install --fix` 后重启 Metro(`--clear`) |
-| 改了原生依赖后 App 行为不对 | JS 热重载救不了原生变更——需要重新 EAS 构建 APK 安装 |
+| Framework | React Native + [Expo](https://expo.dev) (SDK 56) |
+| Language | TypeScript |
+| State | [Zustand](https://github.com/pmndrs/zustand) |
+| Lists | [@shopify/flash-list](https://shopify.github.io/flash-list/) |
+| Storage | `expo-sqlite` (versioned migrations) |
+| Playback | `expo-audio` |
+| On-device ASR | [whisper.rn](https://github.com/mybigday/whisper.rn) (whisper.cpp) |
+| Audio decode | [react-native-audio-api](https://github.com/software-mansion/react-native-audio-api) |
+| Cloud ASR / TTS | 火山引擎 豆包 (optional) |
+| AI notes | 豆包 (火山方舟) or DeepSeek (optional) |
 
----
+No backend — every network call (optional cloud ASR/TTS/AI) is made directly
+from the app.
 
-## 构建 & 分发
+## Getting started
+
+> The on-device transcription engine uses **native modules**, so it needs a
+> *development build* — it does **not** run in Expo Go. In Expo Go you can still
+> use the app with the cloud transcription engine.
+
+### Prerequisites
+
+- Node.js 20+
+- An Android device or emulator (Android is the primary target; iOS works via
+  React Native/Expo but is untested)
+- For the offline engine / native build: Android Studio + SDK, **or** an
+  [Expo EAS](https://docs.expo.dev/build/introduction/) account for cloud builds
+
+### Run a development build
 
 ```bash
-npx eas-cli login
-npx eas-cli build --profile development --platform android   # dev build APK
-# 构建完:adb install -r <下载的.apk>(用 Windows 的 adb 装)
+git clone https://github.com/<your-username>/earmark.git
+cd earmark
+npm install
+
+# Generate the native android/ project (config plugins applied automatically)
+npx expo prebuild --platform android
+
+# Build & install on a connected device/emulator…
+npx expo run:android
+# …or build in the cloud with EAS:
+npx eas build --profile development --platform android
 ```
 
-中国用户使用要点:转写用 On-device 引擎(零 key 零网络);模型下载源选「国内镜像 (hf-mirror)」;AI 笔记可选 DeepSeek。详见 CLAUDE.md。
+After the dev build is installed once, day-to-day work is just
+`npx expo start` opened from the dev build app.
+
+See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)** for the offline engine in detail and
+**[DEVELOPMENT.md](DEVELOPMENT.md)** for local dev notes (incl. running over USB
+from WSL).
+
+### Optional API keys
+
+All transcription (on-device) and the dictionary work with **no keys at all**.
+Keys are only needed for optional online features and are entered in-app
+(Settings → they're stored in the OS secure store, never in the repo):
+
+- **火山引擎 语音** — cloud transcription + 豆包 neural TTS (one key for both)
+- **火山方舟** or **DeepSeek** — AI suggestions & learning notes
+
+## Project structure
+
+```
+src/
+  screens/      Home, Category, Content View, Library, Review
+  components/   modals, settings sub-pages, reusable UI
+  services/     transcription/ (whisper + cloud), audio, tts, ai,
+                dictionary, backup, reminders, fileDeletion, clips …
+  store/        Zustand stores (audioFiles, library, review, playback)
+  db/           SQLite schema, migrations, per-table queries
+  utils/        spacedRepetition (SM-2), sentence/word helpers
+```
+
+`CLAUDE.md` contains a detailed architecture/decision log.
+
+## Privacy
+
+- Audio files are processed **on-device**; they are never uploaded for the
+  default (offline) transcription engine.
+- There is no account and no analytics/telemetry.
+- Optional cloud features (cloud ASR, TTS, AI notes) send only the text/audio
+  needed for that feature to the provider you configured, using your own API key.
+
+## Contributing
+
+Issues and pull requests are welcome. This started as a personal tool, so expect
+some rough edges. If you're filing a bug, the in-app **Settings → 运行日志 (Logs)**
+screen can export logs that help.
+
+## License
+
+[MIT](LICENSE) — free to use, modify and distribute.
+
+## Acknowledgements
+
+Built on the work of [whisper.cpp](https://github.com/ggerganov/whisper.cpp) /
+[whisper.rn](https://github.com/mybigday/whisper.rn),
+[Expo](https://expo.dev), and the [ECDICT](https://github.com/skywind3000/ECDICT)
+English–Chinese dictionary.

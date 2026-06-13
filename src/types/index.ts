@@ -73,8 +73,27 @@ export interface SavedItem {
   dateAdded: number;       // unix timestamp (ms)
   nextReview: number | null; // unix timestamp (ms) for spaced repetition; null = not scheduled
   enrichment: ItemEnrichment | null; // AI learning notes, generated once and cached
+  note: string | null;               // user's personal memory note / mnemonic
   clipUri: string | null;  // extracted audio excerpt — survives source file deletion
   sourceTitle: string | null; // denormalized source file title — outlives the file row
+  // SM-2 spaced-repetition state
+  easeFactor: number;      // difficulty multiplier (starts 2.5, min 1.3)
+  intervalDays: number;    // current scheduling interval in days
+  reviewCount: number;     // number of successful reviews so far
+}
+
+// ─── Spaced repetition ────────────────────────────────────────────────────────
+
+// 4-grade self-rating, SM-2 style. Maps to the buttons on a flashcard and is
+// derived automatically from correctness in the typed/multiple-choice modes.
+export type ReviewGrade = 'again' | 'hard' | 'good' | 'easy';
+
+export interface SrsState {
+  easeFactor: number;
+  intervalDays: number;
+  reviewCount: number;
+  nextReview: number;   // unix ms
+  mastery: MasteryLevel; // derived from intervalDays, for display/filtering
 }
 
 // ─── Learning enrichment (AI-generated once per item, cached in SQLite) ───────
@@ -107,12 +126,17 @@ export interface PlaybackStatus {
 
 export type ReviewMode = 'flashcard' | 'fill-in-blank' | 'listen-identify';
 
-export interface ReviewSession {
+// One queued review: the item plus the mode chosen for it (interleaved mix).
+export interface ReviewCard {
+  item: SavedItem;
   mode: ReviewMode;
-  queue: SavedItem[];      // items scheduled for this session
+}
+
+export interface ReviewSession {
+  queue: ReviewCard[];     // items + their per-item mode for this session
   currentIndex: number;
-  correctCount: number;
-  incorrectCount: number;
+  correctCount: number;    // graded 'good'/'easy'
+  incorrectCount: number;  // graded 'again'/'hard'
 }
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────

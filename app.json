@@ -2,7 +2,7 @@
   "expo": {
     "name": "Earmark",
     "slug": "postcast-assistant",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -11,6 +11,7 @@
     },
     "android": {
       "package": "com.daryl.postcastassistant",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -34,7 +35,13 @@
       "expo-sqlite",
       "expo-sharing",
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-media-library",
+        {
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "extra": {
       "eas": {

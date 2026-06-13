@@ -17,7 +17,8 @@ import {
 } from '../services/settings';
 import { isModelDownloaded } from '../services/transcription/models';
 import { formatDuration, formatRelativeDate } from '../utils/timeFormat';
-import { deleteAudioFileKeepingCards } from '../services/fileDeletion';
+import { deleteAudioFileAndItems, previewAudioFileDeletion } from '../services/fileDeletion';
+import { deleteOriginalFiles, isOriginalCleanupSupported } from '../services/originalCleanup';
 import SettingsModal from '../components/SettingsModal';
 import MoveToCategoryModal from '../components/MoveToCategoryModal';
 
@@ -251,11 +252,16 @@ export default function CategoryScreen({ navigation, route }: Props) {
   }, [sortedFiles]);
 
   // ── Delete (with progress — clip extraction makes each file slow) ──────────
-  const handleDeleteSelected = useCallback(() => {
+  const handleDeleteSelected = useCallback(async () => {
     const ids = [...selectedIds];
+    // Count the saved phrases that would be deleted along with the files.
+    const previews = await Promise.all(ids.map(id => previewAudioFileDeletion(id).catch(() => ({ savedItemCount: 0 }))));
+    const phraseCount = previews.reduce((sum, p) => sum + p.savedItemCount, 0);
     Alert.alert(
       `删除 ${ids.length} 个文件`,
-      '音频和转写会被删除;已保存的短语会保留并可继续复习(删除前会先提取它们的原声片段)。',
+      phraseCount > 0
+        ? `音频、转写,以及这些文件下已保存的 ${phraseCount} 条单词/短语/句子都会被删除,且无法恢复。`
+        : '音频和转写会被删除,且无法恢复。',
       [
         { text: '取消', style: 'cancel' },
         {
@@ -266,7 +272,7 @@ export default function CategoryScreen({ navigation, route }: Props) {
             setDeleteProgress({ done: 0, total: ids.length });
             try {
               for (let i = 0; i < ids.length; i++) {
-                await deleteAudioFileKeepingCards(ids[i]);
+                await deleteAudioFileAndItems(ids[i]);
                 setDeleteProgress({ done: i + 1, total: ids.length });
               }
             } finally {
@@ -348,6 +354,32 @@ export default function CategoryScreen({ navigation, route }: Props) {
         await store.addAudioFile({ title: file.title, uri: file.uri, categoryId });
       }
       // No automatic transcription — the user starts it per file or in batch.
+
+      // Offer to delete the originals from public storage. The app keeps its
+      // own private copy, so deleting the originals frees space and stops the
+      // system music app from scanning them into a duplicate player.
+      const originals = picked.map(p => p.originalUri).filter(Boolean);
+      if (originals.length > 0 && isOriginalCleanupSupported()) {
+        const n = picked.length;
+        Alert.alert(
+          '删除原始文件?',
+          `已导入 ${n} 个文件,App 内已保留副本。\n\n是否删除手机里的原始文件?这样可以释放空间,并避免系统音乐播放器扫描到它们、在通知栏出现重复的播放卡片。`,
+          [
+            { text: '保留', style: 'cancel' },
+            {
+              text: '删除原始文件',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  await deleteOriginalFiles(originals);
+                } catch {
+                  // best-effort — the OS dialog handles the actual removal
+                }
+              },
+            },
+          ]
+        );
+      }
     } catch (e) {
       Alert.alert('导入失败', e instanceof Error ? e.message : '无法导入音频文件');
     } finally {
@@ -474,7 +506,7 @@ export default function CategoryScreen({ navigation, route }: Props) {
               <Text style={styles.progressTitle}>
                 正在删除 {Math.min(deleteProgress.done + 1, deleteProgress.total)}/{deleteProgress.total} 个文件…
               </Text>
-              <Text style={styles.progressSubtitle}>正在为已保存的短语提取原声片段,请稍候</Text>
+              <Text style={styles.progressSubtitle}>正在删除文件及其保存的短语,请稍候</Text>
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: `${Math.round((deleteProgress.done / deleteProgress.total) * 100)}%` }]} />
               </View>

@@ -106,6 +106,26 @@ const migrations: Migration[] = [
       ALTER TABLE audio_files ADD COLUMN sort_order INTEGER;
     `,
   },
+  {
+    version: 8,
+    up: `
+      -- User's personal memory note for a saved item (mnemonic, association…).
+      -- NULL/empty = none. The strongest memory hook is one the user writes.
+      ALTER TABLE saved_items ADD COLUMN note TEXT;
+    `,
+  },
+  {
+    version: 9,
+    up: `
+      -- SM-2 spaced-repetition state (replaces the crude fixed 1/3/7-day model).
+      -- ease_factor: difficulty multiplier, starts 2.5, floored at 1.3.
+      -- interval_days: current scheduling interval (the base for the next one).
+      -- review_count: successful reviews so far (drives the early fixed steps).
+      ALTER TABLE saved_items ADD COLUMN ease_factor  REAL    NOT NULL DEFAULT 2.5;
+      ALTER TABLE saved_items ADD COLUMN interval_days REAL   NOT NULL DEFAULT 0;
+      ALTER TABLE saved_items ADD COLUMN review_count  INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export async function runMigrations(db: SQLiteDatabase): Promise<void> {

@@ -61,7 +61,7 @@ export default function HomeScreen({ navigation }: Props) {
 
   useEffect(() => {
     navigation.setOptions({
-      headerTitle: 'My Podcasts',
+      headerTitle: 'Earmark',
       headerRight: () => (
         <Pressable onPress={() => setSettingsVisible(true)} style={{ padding: 4, marginRight: 4 }}>
           <Ionicons name="settings-outline" size={22} color={COLORS.primary} />

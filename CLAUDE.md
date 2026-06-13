@@ -111,8 +111,9 @@ User reviews saved items via flashcard/quiz mode
 ## Current State
 
 - All 4 screens built and functional (Home, Content View, Library, Review)
-- SQLite schema with migrations (v6): audio_files (category_id, last_position), categories, segments, words, saved_items (nullable audio_file_id + ON DELETE SET NULL, clip_uri, source_title, enrichment), suggestion_cache, review_log
-- Data safety: JSON backup export/import (merge-safe, Settings → Data & storage); deleting an audio file keeps its saved items — audio clips are batch-extracted first (dev build; services/clips.ts + services/fileDeletion.ts); stuck 'transcribing' rows auto-recover to 'error' at startup
+- SQLite schema with migrations (v9): audio_files (category_id, last_position, sort_order), categories, segments, words, saved_items (nullable audio_file_id + ON DELETE SET NULL, clip_uri, source_title, enrichment, note, SM-2: ease_factor/interval_days/review_count), suggestion_cache, review_log
+- Data safety: JSON backup export/import (merge-safe, Settings → Data & storage); stuck 'transcribing' rows auto-recover to 'error' at startup
+- Audio/saved-item coupling: deleting an audio file ALSO deletes its saved words/phrases/sentences (services/fileDeletion.ts deleteAudioFileAndItems; review_log kept so streak survives). Review plays the ORIGINAL audio sliced live from the source file (text-corrected bounds via services/sentenceLocator.ts) — no extracted-clip files. The old clip-extraction pipeline was removed; services/clips.ts only cleans up legacy leftover clips. saved_items.clip_uri column is retained but unused for new items.
 - Listening UX: per-file playback position persisted (resume on open, "% listened" on cards); storage management screen (per-file sizes, remove-audio-keep-cards)
 - Review retention: daily local notification reminder (expo-notifications, Settings toggle + time presets); saved items editable (fix Whisper errors) via pencil icon in item detail
 - Settings (Chinese UI): hub page with readiness status per feature + sub-pages (转写引擎/发音朗读/AI 学习笔记/数据与存储, src/components/settings/); engine page shows only the selected mode's config with ready/missing-step badges; API keys live in the pages that use them and auto-save on blur; AI notes has a master toggle (settings.aiEnabled, gates auto-enrichment)
@@ -121,7 +122,7 @@ User reviews saved items via flashcard/quiz mode
 - Transcription engine abstraction: on-device whisper.cpp (default) + 火山引擎豆包 cloud (optional), selected in Settings; one 火山 API Key powers both cloud ASR and 豆包 TTS (services/volcano.ts, services/transcription/volcanoAsr.ts)
 - Pronunciation readout: 豆包 bigtts neural voices (8 EN presets, US/UK/AU) with per-text disk cache (document/tts-cache) and automatic fallback to system TTS (expo-speech) when offline/unconfigured — Settings → Pronunciation
 - Whisper model manager: download/delete tiny.en / base.en / small.en (q5_1) from Hugging Face with progress UI
-- Review modes: flashcard (with audio clip playback), fill-in-the-blank, listen & identify (multiple choice)
+- Review (memory-science redesign): single "今日复习" entry — no mode picker. One session interleaves the three modes, auto-chosen per item by mastery (new→flashcard/listen, learning→listen, mastered→fill-in-blank). SM-2 4-grade scheduling (重来/有点难/记得/很容易) in utils/spacedRepetition.ts (computeSrs); wrong answers shorten interval + lower ease instead of resetting; mastery is derived from interval_days for display. Flashcard shows the 4 grade buttons; typed/MC modes map correct→good, wrong→again. reviewStore holds ReviewCard[] (item+mode); libraryStore.applySrs persists state
 - Library: search, type/mastery filters, sort (newest/oldest/mastery/A–Z)
 - Daily streak + reviewed-today stats via review_log
 - AI phrase suggestions modal (豆包方舟 or DeepSeek, optional, cached per file; services/ai.ts + services/suggestions.ts)

@@ -1,63 +1,51 @@
 import { getAudioFile, deleteAudioFile } from '../db/queries/audioFiles';
-import { getSavedItemsByAudioFile, updateSavedItemClip } from '../db/queries/savedItems';
+import { getSavedItemsByAudioFile, deleteSavedItemsByAudioFile } from '../db/queries/savedItems';
 import { deleteImportedAudio } from './filePicker';
-import { extractClips, isClipExtractionSupported } from './clips';
+import { deleteClipFile } from './clips';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { useLibraryStore } from '../store/libraryStore';
 import { log } from '../utils/logger';
 
-// ─── Audio file deletion that preserves learning cards ────────────────────────
-// Deleting a podcast must never destroy the user's saved phrases. Before the
-// file goes away we extract a small audio clip per saved item (one decode for
-// all of them); the DB then detaches the items (FK ON DELETE SET NULL) instead
-// of cascading. Transcript rows (segments/words) still cascade — they are
-// useless without the audio.
+// ─── Audio file deletion (cascades to its saved items) ────────────────────────
+// Saved words/phrases/sentences are tied to their source audio: review plays
+// the real podcast audio sliced live from the source file, so an item without
+// its source is no longer useful. Deleting a file therefore removes its saved
+// items too. Review history (review_log) is deliberately KEPT so the user's
+// streak and daily stats survive.
 
 export interface DeletionPreview {
-  savedItemCount: number;     // cards that will be preserved
-  clipsWillBeExtracted: boolean; // false in Expo Go — cards survive but lose audio
+  savedItemCount: number; // saved items that will ALSO be deleted
 }
 
-/** What deleting this file would do — for confirmation dialogs. */
+/** What deleting this file would remove — for confirmation dialogs. */
 export async function previewAudioFileDeletion(audioFileId: number): Promise<DeletionPreview> {
   const items = await getSavedItemsByAudioFile(audioFileId);
-  const missingClips = items.some(i => !i.clipUri);
-  return {
-    savedItemCount: items.length,
-    clipsWillBeExtracted: !missingClips || isClipExtractionSupported(),
-  };
+  return { savedItemCount: items.length };
 }
 
 /**
- * Deletes an audio file (DB row + transcript + the imported copy on disk)
- * while keeping its saved items reviewable: clips are extracted first when
- * the native decoder is available.
+ * Deletes an audio file and everything tied to it: transcript (segments/words
+ * cascade), saved items + their review logs + any cached clip files, and the
+ * imported audio copy on disk.
  */
-export async function deleteAudioFileKeepingCards(audioFileId: number): Promise<void> {
+export async function deleteAudioFileAndItems(audioFileId: number): Promise<void> {
   const file =
     useAudioFilesStore.getState().audioFiles.find(f => f.id === audioFileId) ??
     await getAudioFile(audioFileId);
   if (!file) return;
 
-  // 1. Best-effort clip extraction for items that don't have one yet.
+  // 1. Remove saved items + any leftover clip files. Review history
+  //    (review_log) is intentionally kept so the streak survives.
   const items = await getSavedItemsByAudioFile(audioFileId);
-  const needingClips = items.filter(i => !i.clipUri);
-  if (needingClips.length > 0 && isClipExtractionSupported()) {
-    try {
-      const clips = await extractClips(
-        file.uri,
-        needingClips.map(i => ({ id: i.id, startTime: i.startTime, endTime: i.endTime }))
-      );
-      for (const [itemId, clipUri] of clips) {
-        await updateSavedItemClip(itemId, clipUri);
-      }
-    } catch (e) {
-      // Cards still survive — they just lose original-audio playback.
-      log.warn('fileDeletion', 'clip extraction failed', e instanceof Error ? e.message : String(e));
+  if (items.length > 0) {
+    for (const i of items) {
+      if (i.clipUri) deleteClipFile(i.clipUri);
     }
+    await deleteSavedItemsByAudioFile(audioFileId);
+    log.info('fileDeletion', `deleted ${items.length} saved item(s) with file ${audioFileId}`);
   }
 
-  // 2. Delete the DB row: segments/words cascade, saved_items detach (SET NULL).
+  // 2. Delete the DB row — segments/words/suggestion_cache cascade.
   await deleteAudioFile(audioFileId);
 
   // 3. Remove the imported audio copy from disk.

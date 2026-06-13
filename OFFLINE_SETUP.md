@@ -54,8 +54,8 @@ After installing the dev build once, daily development is the same as before:
 
 ## What still needs internet
 
-- **AI phrase suggestions** (Claude API, optional — needs an Anthropic key).
-  Results are cached per file, so once fetched they are available offline.
+- **AI phrase suggestions & learning notes** (optional — 豆包/火山方舟 or DeepSeek key).
+  Results are cached per file/item, so once fetched they are available offline.
 - Whisper **model download** (one-time per model).
 - **豆包朗读 (TTS)** — first playback of each text only; the audio is then cached
   on disk and replays offline. Falls back to the system TTS engine when offline.

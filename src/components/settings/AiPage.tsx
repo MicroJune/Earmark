@@ -16,14 +16,32 @@ interface Props {
   onSaveArkKey: (v: string) => void;
   deepseekKey: string;
   onSaveDeepseekKey: (v: string) => void;
+  hideMeaning: boolean;
+  onHideMeaning: (v: boolean) => void;
 }
 
 export default function AiPage({
   enabled, onEnabled, provider, onProvider,
   arkKey, onSaveArkKey, deepseekKey, onSaveDeepseekKey,
+  hideMeaning, onHideMeaning,
 }: Props) {
   return (
     <View>
+      {/* 复习偏好 — 主动回忆 */}
+      <SectionTitle>复习偏好</SectionTitle>
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.switchTitle}>详情页默认隐藏含义</Text>
+          <Text style={styles.switchSubtitle}>打开单词时先回忆、点击才揭晓 — 主动回忆记得更牢</Text>
+        </View>
+        <Switch
+          value={hideMeaning}
+          onValueChange={onHideMeaning}
+          trackColor={{ true: COLORS.primary }}
+        />
+      </View>
+
+      <SectionTitle>AI 学习笔记</SectionTitle>
       <PageIntro>
         保存短语时自动生成中文翻译、近义词、例句和用法提示(需联网,生成一次永久离线可看)。这是可选功能 — 转写、词典、复习全部不依赖它。
       </PageIntro>

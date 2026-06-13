@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SavedItem, SavedItemType, MasteryLevel } from '../types';
+import type { SavedItem, SavedItemType, MasteryLevel, SrsState } from '../types';
 import {
   getAllSavedItems,
   insertSavedItem,
@@ -8,6 +8,8 @@ import {
   updateNextReview,
   updateEnrichment,
   updateSavedItemText,
+  updateNote,
+  updateSrsState,
   searchSavedItems,
 } from '../db/queries/savedItems';
 import { generateEnrichment } from '../services/enrichment';
@@ -76,11 +78,13 @@ interface LibraryStore {
   error: string | null;
 
   loadItems: () => Promise<void>;
-  addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle'>) => Promise<number>;
+  addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount'>) => Promise<number>;
   removeItem: (item: SavedItem) => Promise<void>;
   updateMastery: (id: number, mastery: MasteryLevel) => Promise<void>;
   editItemText: (id: number, text: string, contextSentence: string) => Promise<void>;
+  setNote: (id: number, note: string) => Promise<void>;
   scheduleReview: (id: number, nextReview: number | null) => Promise<void>;
+  applySrs: (id: number, state: SrsState) => Promise<void>;
   enrichItem: (id: number) => Promise<SavedItem>;
   setFilter: (partial: Partial<LibraryFilter>) => void;
   resetFilter: () => void;
@@ -163,10 +167,32 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     });
   },
 
+  setNote: async (id, note) => {
+    await updateNote(id, note);
+    const value = note.trim() || null;
+    set(state => {
+      const items = state.items.map(i => i.id === id ? { ...i, note: value } : i);
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
   scheduleReview: async (id, nextReview) => {
     await updateNextReview(id, nextReview);
     set(state => {
       const items = state.items.map(i => i.id === id ? { ...i, nextReview } : i);
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  applySrs: async (id, srs) => {
+    await updateSrsState(id, srs);
+    set(state => {
+      const items = state.items.map(i =>
+        i.id === id
+          ? { ...i, easeFactor: srs.easeFactor, intervalDays: srs.intervalDays,
+              reviewCount: srs.reviewCount, nextReview: srs.nextReview, mastery: srs.mastery }
+          : i
+      );
       return { items, filteredItems: applyFilter(items, state.filter) };
     });
   },

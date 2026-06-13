@@ -20,7 +20,8 @@ const SUPPORTED_MIME_TYPES = [
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PickedAudioFile {
-  uri: string;
+  uri: string;          // the imported copy inside app storage
+  originalUri: string;  // where the user picked it from (public storage)
   name: string;
   title: string;
   mimeType: string;
@@ -62,6 +63,7 @@ async function importAsset(asset: DocumentPicker.DocumentPickerAsset): Promise<P
 
   return {
     uri: destFile.uri,
+    originalUri: asset.uri,
     name: asset.name,
     title: extractTitle(asset.name),
     mimeType: asset.mimeType ?? 'audio/mpeg',

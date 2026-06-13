@@ -125,7 +125,7 @@ function ensureNotificationPermission(): void {
   if (_notificationPermissionRequested || Platform.OS !== 'android') return;
   _notificationPermissionRequested = true;
   void requestNotificationPermissionsAsync()
-    .then(r => log.info('audio', `notification permission: granted=${r.granted} status=${r.status} canAskAgain=${r.canAskAgain}`))
+    .then(r => log.debug('audio', `notification permission: granted=${r.granted} status=${r.status} canAskAgain=${r.canAskAgain}`))
     .catch(e => log.warn('audio', 'notification permission request failed', e instanceof Error ? e.message : String(e)));
 }
 
@@ -160,14 +160,12 @@ export async function loadAudio(
     // Lock-screen / notification media controls (best-effort — in-app
     // playback works even if this fails on some device/launcher)
     ensureNotificationPermission();
-    log.info('audio', `lockscreen registration: api=${typeof player.setActiveForLockScreen} android=${Platform.Version}`);
     try {
       player.setActiveForLockScreen(
         true,
-        { title: title ?? 'Podcast', artist: 'Podcast Assistant' },
+        { title: title ?? 'Podcast', artist: 'Earmark' },
         { showSeekForward: true, showSeekBackward: true }
       );
-      log.info('audio', 'lockscreen controls registered OK');
     } catch (e) {
       log.warn('audio', 'setActiveForLockScreen FAILED', e instanceof Error ? e.message : String(e));
     }
@@ -326,7 +324,6 @@ export function togglePreview(key: string, uri: string, start: number, end: numb
   }
 
   // Starting a new preview — tear down any previous preview and pause main
-  log.info('audio', 'preview controller: v4-debug'); // bundle version marker
   stopPreview();
   _player?.pause();
 
@@ -337,7 +334,7 @@ export function togglePreview(key: string, uri: string, start: number, end: numb
     log.warn('audio', `clip bounds too long (${safeStart.toFixed(1)}–${safeEnd.toFixed(1)}s) — clamping to ${MAX_CLIP_SECONDS}s. Likely a timestamp issue.`);
     safeEnd = safeStart + MAX_CLIP_SECONDS;
   }
-  log.info('audio', `preview ${key} start: requested ${start.toFixed(2)}–${end.toFixed(2)}s → playing ${safeStart.toFixed(2)}–${safeEnd.toFixed(2)}s of ${uri.split('/').pop()}`);
+  log.debug('audio', `preview ${key} start: requested ${start.toFixed(2)}–${end.toFixed(2)}s → playing ${safeStart.toFixed(2)}–${safeEnd.toFixed(2)}s of ${uri.split('/').pop()}`);
 
   try {
     const player = createAudioPlayer({ uri }, { updateInterval: 50 });
@@ -345,16 +342,9 @@ export function togglePreview(key: string, uri: string, start: number, end: numb
     setPreviewState(key, 'loading');
 
     let started = false;
-    let ticks = 0;
     _clipSubscription = player.addListener('playbackStatusUpdate', (s: AudioStatus) => {
-      // DEBUG: trace the first ticks so we can see WHERE playback actually is
-      if (ticks < 8) {
-        ticks++;
-        log.info('audio', `tick#${ticks}: currentTime=${s.currentTime?.toFixed?.(2)}s playing=${s.playing} isLoaded=${s.isLoaded} started=${started}`);
-      }
       if (!s.isLoaded || !started) return;
       if (s.didJustFinish || s.currentTime >= safeEnd) {
-        log.info('audio', `preview stop: currentTime=${s.currentTime.toFixed(2)}s, end=${safeEnd.toFixed(2)}s, didJustFinish=${s.didJustFinish}`);
         stopPreview();
       }
     });
@@ -375,11 +365,8 @@ export function togglePreview(key: string, uri: string, start: number, end: numb
         stopPreview();
         return;
       }
-      log.info('audio', `preview loaded: file duration=${player.currentStatus.duration.toFixed(2)}s, seeking to ${safeStart.toFixed(2)}s, will stop at ${safeEnd.toFixed(2)}s`);
       await player.seekTo(safeStart);
       if (_clipPlayer !== player) return;
-      // DEBUG: where does the player think it is right after the seek?
-      log.info('audio', `after seekTo(${safeStart.toFixed(2)}): currentTime=${player.currentStatus.currentTime?.toFixed?.(2)}s`);
       started = true;
       player.play();
       setPreviewState(key, 'playing');
@@ -401,14 +388,14 @@ export function togglePreview(key: string, uri: string, start: number, end: numb
  */
 export async function toggleSavedItemPreview(
   key: string,
-  item: Pick<SavedItem, 'clipUri' | 'audioFileId' | 'startTime' | 'endTime' | 'contextSentence'>
+  item: Pick<SavedItem, 'clipUri' | 'audioFileId' | 'startTime' | 'endTime' | 'contextSentence' | 'text'>
 ): Promise<void> {
   // If toggling the active button, no need to resolve the source again.
   if (usePreviewStore.getState().activeKey === key && _clipPlayer) {
     togglePreview(key, '', 0, 0); // uri/bounds ignored on toggle path
     return;
   }
-  log.info('audio', `saved item ${key}: startTime=${item.startTime}s endTime=${item.endTime}s clipUri=${item.clipUri ? 'yes' : 'no'} audioFileId=${item.audioFileId}`);
+  log.debug('audio', `preview ${key}: text="${item.text}" context="${item.contextSentence?.slice(0, 60)}" storedTimes=${item.startTime?.toFixed?.(2)}–${item.endTime?.toFixed?.(2)}s clipUri=${item.clipUri ? 'yes' : 'no'} audioFileId=${item.audioFileId}`);
 
   // Best source: locate the "From the podcast" sentence by TEXT in the
   // transcript — guaranteed to play exactly what the user sees, regardless
@@ -421,14 +408,17 @@ export async function toggleSavedItemPreview(
       const start = bounds ? bounds.start : item.startTime;
       const end = bounds ? bounds.end : item.endTime;
       if (!bounds) {
-        log.warn('audio', 'sentence not found in transcript — falling back to stored item times');
+        log.warn('audio', `sentence NOT found in transcript — falling back to stored item times ${item.startTime?.toFixed?.(2)}–${item.endTime?.toFixed?.(2)}s (these may be wrong)`);
       }
+      log.debug('audio', `will play ${file.uri.split('/').pop()} @ ${Math.max(0, start - 0.3).toFixed(2)}–${(end + 0.4).toFixed(2)}s`);
       togglePreview(key, file.uri, Math.max(0, start - 0.3), end + 0.4);
       return;
     }
+    log.warn('audio', `audioFileId=${item.audioFileId} not found in DB — file row missing`);
   }
   // Source file deleted — fall back to the extracted clip (phrase-only).
   if (item.clipUri) {
+    log.debug('audio', `playing extracted clip ${item.clipUri.split('/').pop()}`);
     // Clip files already include pre/post padding — play them whole.
     togglePreview(key, item.clipUri, 0, item.endTime - item.startTime + 1);
     return;

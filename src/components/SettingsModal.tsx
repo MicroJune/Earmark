@@ -9,7 +9,7 @@ import { COLORS } from '../constants/colors';
 import { getApiKeys, saveApiKeys, type ApiKeys } from '../services/config';
 import {
   getSettings, setTranscriptionEngine, setWhisperModel, setModelMirror,
-  setAiProvider, setAiEnabled,
+  setAiProvider, setAiEnabled, getHideMeaning, setHideMeaning,
   type TranscriptionEngine, type WhisperModelName, type ModelMirror, type AiProvider,
 } from '../services/settings';
 import { downloadModel, deleteModel, getDownloadedModels } from '../services/transcription/models';
@@ -66,6 +66,7 @@ export default function SettingsModal({
   // AI
   const [aiEnabled, setAiEnabledState] = useState(true);
   const [aiProvider, setAiProviderState] = useState<AiProvider>('volcano');
+  const [hideMeaning, setHideMeaningState] = useState(true);
 
   // API keys (auto-saved on blur — see saveKey)
   const [keys, setKeys] = useState<ApiKeys>({ volcApiKey: '', arkApiKey: '', deepseekApiKey: '' });
@@ -89,19 +90,21 @@ export default function SettingsModal({
   const [sampling, setSampling] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [settings, models, storedKeys, reminderSettings, englishVoices, tts] = await Promise.all([
+    const [settings, models, storedKeys, reminderSettings, englishVoices, tts, hideM] = await Promise.all([
       getSettings(),
       getDownloadedModels(),
       getApiKeys(),
       getReminderSettings(),
       getEnglishVoices().catch(() => [] as TtsVoice[]),
       getTtsSettings(),
+      getHideMeaning(),
     ]);
     setEngine(settings.transcriptionEngine);
     setActiveModel(settings.whisperModel);
     setMirror(settings.modelMirror);
     setAiProviderState(settings.aiProvider);
     setAiEnabledState(settings.aiEnabled);
+    setHideMeaningState(hideM);
     setDownloaded(models);
     setReminderState(reminderSettings);
     setVoices(englishVoices);
@@ -180,6 +183,11 @@ export default function SettingsModal({
   const handleMirror = async (next: ModelMirror) => {
     setMirror(next);
     await setModelMirror(next);
+  };
+
+  const handleHideMeaning = async (v: boolean) => {
+    setHideMeaningState(v);
+    await setHideMeaning(v);
   };
 
   const handleAiEnabled = async (v: boolean) => {
@@ -457,6 +465,8 @@ export default function SettingsModal({
               onSaveArkKey={v => saveKey('arkApiKey', v)}
               deepseekKey={keys.deepseekApiKey}
               onSaveDeepseekKey={v => saveKey('deepseekApiKey', v)}
+              hideMeaning={hideMeaning}
+              onHideMeaning={handleHideMeaning}
             />
           )}
 

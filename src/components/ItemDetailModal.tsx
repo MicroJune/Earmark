@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, Modal, Pressable, ScrollView,
   ActivityIndicator, Alert, StyleSheet, TextInput,
@@ -13,7 +13,8 @@ import { speak, speakSlowly, stopSpeaking } from '../services/tts';
 import { toggleSavedItemPreview, stopPreview } from '../services/audio';
 import { hasPronunciationAudio, playPronunciationText, playSavedItemPronunciation } from '../services/pronunciation';
 import { usePreviewStore } from '../store/previewStore';
-import { lookupWord, TAG_LABELS } from '../services/dictionary';
+import { lookupWord, getWordForms, TAG_LABELS } from '../services/dictionary';
+import { getHideMeaning } from '../services/settings';
 
 const MASTERY_COLOR: Record<MasteryLevel, string> = {
   new:      COLORS.warning,
@@ -25,6 +26,24 @@ function SectionTitle({ children }: { children: string }) {
   return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
+// Renders the context sentence with the saved phrase highlighted in place, so
+// the user instantly sees WHERE the word sat in what they heard.
+function HighlightedSentence({ sentence, phrase }: { sentence: string; phrase: string }) {
+  const lower = sentence.toLowerCase();
+  const at = lower.indexOf(phrase.toLowerCase().trim());
+  if (at < 0 || !phrase.trim()) {
+    return <Text style={styles.context}>"{sentence}"</Text>;
+  }
+  const before = sentence.slice(0, at);
+  const match = sentence.slice(at, at + phrase.trim().length);
+  const after = sentence.slice(at + phrase.trim().length);
+  return (
+    <Text style={styles.context}>
+      "{before}<Text style={styles.contextHighlight}>{match}</Text>{after}"
+    </Text>
+  );
+}
+
 export default function ItemDetailModal({
   item, onClose,
 }: {
@@ -34,6 +53,8 @@ export default function ItemDetailModal({
   const insets = useSafeAreaInsets();
   const enrichItem = useLibraryStore(s => s.enrichItem);
   const editItemText = useLibraryStore(s => s.editItemText);
+  const setNote = useLibraryStore(s => s.setNote);
+  const updateMastery = useLibraryStore(s => s.updateMastery);
   // Subscribe to the live item so the modal re-renders when enrichment lands
   const liveItem = useLibraryStore(s => s.items.find(i => i.id === item?.id));
   const audioFile = useAudioFilesStore(s =>
@@ -51,10 +72,28 @@ export default function ItemDetailModal({
     () => (item ? lookupWord(item.text) : null),
     [item?.text]
   );
+  const wordForms = useMemo(
+    () => (item ? getWordForms(item.text) : []),
+    [item?.text]
+  );
   const hasStandardAudio = useMemo(
     () => (item ? hasPronunciationAudio(item.text) : false),
     [item?.text]
   );
+
+  // Active recall: meaning is hidden until tapped (per the hide-meaning setting)
+  const [revealed, setRevealed] = useState(false);
+  // My note editing
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+
+  // Reset per-item: re-hide the meaning and exit note editing when the item changes
+  useEffect(() => {
+    let active = true;
+    getHideMeaning().then(hide => { if (active) setRevealed(!hide); });
+    setEditingNote(false);
+    return () => { active = false; };
+  }, [item?.id]);
 
   if (!item) return null;
   const live = liveItem ?? item;
@@ -108,6 +147,26 @@ export default function ItemDetailModal({
     }
   };
 
+  const MASTERY_CYCLE: MasteryLevel[] = ['new', 'learning', 'mastered'];
+  const cycleMastery = () => {
+    const next = MASTERY_CYCLE[(MASTERY_CYCLE.indexOf(live.mastery) + 1) % MASTERY_CYCLE.length];
+    void updateMastery(live.id, next);
+  };
+
+  const startEditingNote = () => {
+    setNoteText(live.note ?? '');
+    setEditingNote(true);
+  };
+
+  const handleSaveNote = async () => {
+    try {
+      await setNote(live.id, noteText);
+      setEditingNote(false);
+    } catch (e) {
+      Alert.alert('Save failed', e instanceof Error ? e.message : 'Could not save the note');
+    }
+  };
+
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       {/* Keep the header clear of the status bar — Android edge-to-edge
@@ -117,9 +176,14 @@ export default function ItemDetailModal({
           <View style={styles.typeBadge}>
             <Text style={styles.typeBadgeText}>{live.type}</Text>
           </View>
-          <View style={[styles.masteryBadge, { backgroundColor: MASTERY_COLOR[live.mastery] + '22' }]}>
+          <Pressable
+            style={[styles.masteryBadge, { backgroundColor: MASTERY_COLOR[live.mastery] + '22' }]}
+            onPress={cycleMastery}
+            hitSlop={6}
+          >
             <Text style={[styles.masteryText, { color: MASTERY_COLOR[live.mastery] }]}>{live.mastery}</Text>
-          </View>
+            <Ionicons name="swap-horizontal" size={12} color={MASTERY_COLOR[live.mastery]} />
+          </Pressable>
           <View style={{ flex: 1 }} />
           {!editing && (
             <Pressable onPress={startEditing} hitSlop={8} style={{ marginRight: 14 }}>
@@ -190,17 +254,12 @@ export default function ItemDetailModal({
             </Pressable>
           </View>
 
-          {/* Offline dictionary (single words) */}
+          {/* Phonetic + word forms + exam tags are visible cues (not "the answer") */}
           {dictEntry && (
             <>
-              <SectionTitle>词典 (offline)</SectionTitle>
               {dictEntry.phonetic ? (
                 <Text style={styles.phonetic}>/{dictEntry.phonetic}/</Text>
               ) : null}
-              <Text style={styles.pronunciationStatus}>
-                {hasStandardAudio ? 'Standard audio available' : 'Standard audio pack not installed — Speak uses TTS fallback'}
-              </Text>
-              <Text style={styles.dictTranslation}>{dictEntry.translation}</Text>
               {dictEntry.tags.length > 0 && (
                 <View style={styles.tagRow}>
                   {dictEntry.tags.map(t => (
@@ -212,11 +271,23 @@ export default function ItemDetailModal({
               )}
             </>
           )}
+          {wordForms.length > 0 && (
+            <>
+              <SectionTitle>Word forms</SectionTitle>
+              <View style={styles.formRow}>
+                {wordForms.map(f => (
+                  <Pressable key={f} style={styles.formChip} onPress={() => speak(f)}>
+                    <Text style={styles.formText}>{f}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
 
-          {/* Original context */}
+          {/* Original context — phrase highlighted in place */}
           <SectionTitle>From the podcast</SectionTitle>
           <Pressable onPress={() => speak(live.contextSentence)}>
-            <Text style={styles.context}>"{live.contextSentence}"</Text>
+            <HighlightedSentence sentence={live.contextSentence} phrase={live.text} />
             {(audioFile?.title ?? live.sourceTitle) && (
               <Text style={styles.source}>
                 {audioFile?.title ?? live.sourceTitle}
@@ -225,54 +296,111 @@ export default function ItemDetailModal({
             )}
           </Pressable>
 
-          {/* Learning notes */}
-          {enrichment ? (
+          {/* Meaning — hidden until tapped, for active recall */}
+          {!revealed ? (
+            <Pressable style={styles.revealGate} onPress={() => setRevealed(true)}>
+              <Ionicons name="eye-off-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.revealGateText}>先回忆这个词的意思 — 点击揭晓</Text>
+            </Pressable>
+          ) : (
             <>
-              <SectionTitle>中文翻译</SectionTitle>
-              <Text style={styles.translation}>{enrichment.translationZh}</Text>
-
-              <SectionTitle>English definition</SectionTitle>
-              <Text style={styles.definition}>{enrichment.definitionEn}</Text>
-
-              {enrichment.synonyms.length > 0 && (
+              {dictEntry && (
                 <>
-                  <SectionTitle>Similar words & phrases</SectionTitle>
-                  <View style={styles.synonymRow}>
-                    {enrichment.synonyms.map(s => (
-                      <Pressable key={s} style={styles.synonymChip} onPress={() => playPronunciationText(`syn-${live.id}-${s}`, s)}>
-                        <Text style={styles.synonymText}>{s}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
+                  <SectionTitle>词典 (offline)</SectionTitle>
+                  <Text style={styles.dictTranslation}>{dictEntry.translation}</Text>
+                  <Text style={styles.pronunciationStatus}>
+                    {hasStandardAudio ? 'Standard audio available' : 'Standard audio pack not installed — Speak uses TTS fallback'}
+                  </Text>
                 </>
               )}
 
-              {enrichment.examples.length > 0 && (
+              {/* Learning notes (AI) */}
+              {enrichment && (
                 <>
-                  <SectionTitle>More examples</SectionTitle>
-                  {enrichment.examples.map((ex, i) => (
-                    <Pressable key={i} style={styles.exampleCard} onPress={() => speak(ex.en)}>
-                      <View style={styles.exampleHeader}>
-                        <Ionicons name="volume-medium-outline" size={14} color={COLORS.primary} />
-                        <Text style={styles.exampleEn}>{ex.en}</Text>
+                  <SectionTitle>中文翻译</SectionTitle>
+                  <Text style={styles.translation}>{enrichment.translationZh}</Text>
+
+                  <SectionTitle>English definition</SectionTitle>
+                  <Text style={styles.definition}>{enrichment.definitionEn}</Text>
+
+                  {enrichment.synonyms.length > 0 && (
+                    <>
+                      <SectionTitle>Similar words & phrases</SectionTitle>
+                      <View style={styles.synonymRow}>
+                        {enrichment.synonyms.map(s => (
+                          <Pressable key={s} style={styles.synonymChip} onPress={() => playPronunciationText(`syn-${live.id}-${s}`, s)}>
+                            <Text style={styles.synonymText}>{s}</Text>
+                          </Pressable>
+                        ))}
                       </View>
-                      <Text style={styles.exampleZh}>{ex.zh}</Text>
-                    </Pressable>
-                  ))}
+                    </>
+                  )}
+
+                  {enrichment.examples.length > 0 && (
+                    <>
+                      <SectionTitle>More examples</SectionTitle>
+                      {enrichment.examples.map((ex, i) => (
+                        <Pressable key={i} style={styles.exampleCard} onPress={() => speak(ex.en)}>
+                          <View style={styles.exampleHeader}>
+                            <Ionicons name="volume-medium-outline" size={14} color={COLORS.primary} />
+                            <Text style={styles.exampleEn}>{ex.en}</Text>
+                          </View>
+                          <Text style={styles.exampleZh}>{ex.zh}</Text>
+                        </Pressable>
+                      ))}
+                    </>
+                  )}
+
+                  {enrichment.tip && (
+                    <>
+                      <SectionTitle>Tip</SectionTitle>
+                      <View style={styles.tipCard}>
+                        <Ionicons name="bulb-outline" size={16} color={COLORS.warning} />
+                        <Text style={styles.tipText}>{enrichment.tip}</Text>
+                      </View>
+                    </>
+                  )}
                 </>
               )}
 
-              {enrichment.tip && (
-                <>
-                  <SectionTitle>Tip</SectionTitle>
-                  <View style={styles.tipCard}>
-                    <Ionicons name="bulb-outline" size={16} color={COLORS.warning} />
-                    <Text style={styles.tipText}>{enrichment.tip}</Text>
+              {/* My note — the user's own memory hook */}
+              <SectionTitle>我的笔记</SectionTitle>
+              {editingNote ? (
+                <View>
+                  <TextInput
+                    style={[styles.editInput, { minHeight: 72 }]}
+                    value={noteText}
+                    onChangeText={setNoteText}
+                    placeholder="写下你自己的联想、记忆方法或用法… (自己写的最难忘)"
+                    placeholderTextColor={COLORS.textSecondary}
+                    multiline
+                    autoFocus
+                  />
+                  <View style={styles.editActions}>
+                    <Pressable style={styles.editCancelBtn} onPress={() => setEditingNote(false)}>
+                      <Text style={styles.editCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable style={styles.editSaveBtn} onPress={handleSaveNote}>
+                      <Text style={styles.editSaveText}>Save note</Text>
+                    </Pressable>
                   </View>
-                </>
+                </View>
+              ) : live.note ? (
+                <Pressable style={styles.noteCard} onPress={startEditingNote}>
+                  <Text style={styles.noteText}>{live.note}</Text>
+                  <Ionicons name="pencil" size={14} color={COLORS.textSecondary} />
+                </Pressable>
+              ) : (
+                <Pressable style={styles.addNoteBtn} onPress={startEditingNote}>
+                  <Ionicons name="add" size={16} color={COLORS.primary} />
+                  <Text style={styles.addNoteText}>添加我的记忆笔记</Text>
+                </Pressable>
               )}
             </>
-          ) : (
+          )}
+
+          {/* Generate-notes button stays visible regardless of reveal state */}
+          {!enrichment && (
             <Pressable style={styles.enrichBtn} onPress={handleEnrich} disabled={enriching}>
               {enriching
                 ? <ActivityIndicator color="#fff" />
@@ -302,7 +430,7 @@ const styles = StyleSheet.create({
 
   typeBadge:    { backgroundColor: COLORS.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   typeBadgeText:{ fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
-  masteryBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  masteryBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   masteryText:  { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
 
   itemText:     { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: 14 },
@@ -323,7 +451,20 @@ const styles = StyleSheet.create({
   tagText:         { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
 
   context:      { fontSize: 14, color: COLORS.text, fontStyle: 'italic', lineHeight: 21 },
+  contextHighlight: { fontStyle: 'italic', fontWeight: '800', color: COLORS.primary, backgroundColor: COLORS.primaryLight },
   source:       { fontSize: 11, color: COLORS.textSecondary, marginTop: 4 },
+
+  formRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  formChip:     { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
+  formText:     { fontSize: 13, color: COLORS.text },
+
+  revealGate:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primaryLight, borderRadius: 12, paddingVertical: 18, marginTop: 20 },
+  revealGateText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+
+  noteCard:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.warning + '12', borderRadius: 10, padding: 12 },
+  noteText:     { flex: 1, fontSize: 14, color: COLORS.text, lineHeight: 21 },
+  addNoteBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.primary, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  addNoteText:  { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
 
   translation:  { fontSize: 16, color: COLORS.text, lineHeight: 24 },
   definition:   { fontSize: 14, color: COLORS.text, lineHeight: 21 },

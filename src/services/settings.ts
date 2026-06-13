@@ -98,6 +98,18 @@ export async function setSuggestionDensity(density: SuggestionDensity): Promise<
   await Storage.setItem(KEYS.suggestionDensity, density);
 }
 
+// Hide a saved item's meaning until tapped, turning each detail view into an
+// active-recall rep. Default ON (the whole point of the feature); users who
+// prefer browsing can turn it off.
+export async function getHideMeaning(): Promise<boolean> {
+  const v = await Storage.getItem('settings_hide_meaning');
+  return v !== 'false';
+}
+
+export async function setHideMeaning(hide: boolean): Promise<void> {
+  await Storage.setItem('settings_hide_meaning', String(hide));
+}
+
 // Synchronous mirror base lookup for the model downloader. hf-mirror.com is a
 // well-known Hugging Face mirror that is reachable from mainland China, where
 // huggingface.co is blocked.

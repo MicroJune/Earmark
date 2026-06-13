@@ -71,6 +71,29 @@ function candidates(cleaned: string, data: DictData): string[] {
   return out;
 }
 
+// Reverse index: base word → its inflected forms, built lazily from the
+// lemma table (form → base) which the dictionary was generated from.
+let _formsIndex: Record<string, string[]> | null = null;
+function getFormsIndex(data: DictData): Record<string, string[]> {
+  if (_formsIndex) return _formsIndex;
+  const idx: Record<string, string[]> = {};
+  for (const [form, base] of Object.entries(data.lemmas)) {
+    (idx[base] ??= []).push(form);
+  }
+  _formsIndex = idx;
+  return idx;
+}
+
+/**
+ * Returns the inflected forms of a base word (e.g. take → takes/took/taken/
+ * taking), de-duplicated and excluding the base itself. Empty when none known.
+ */
+export function getWordForms(base: string): string[] {
+  const data = getData();
+  const forms = getFormsIndex(data)[base.toLowerCase()] ?? [];
+  return [...new Set(forms)].filter(f => f !== base.toLowerCase()).sort();
+}
+
 /**
  * Looks up a single word (punctuation/case insensitive, handles common
  * inflections). Returns null when not a single word or not found.
