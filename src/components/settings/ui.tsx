@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, TextInput, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
@@ -101,6 +101,16 @@ export function KeyInput({
   const [saved, setSaved] = useState(false);
 
   useEffect(() => { setText(value); }, [value]);
+
+  // Keep the latest text/value/onSave for the unmount-commit below, so leaving
+  // the field (or switching provider) without an onBlur still persists the edit
+  // to the correct field — and never bleeds it into the other one.
+  const latest = useRef({ text, value, onSave });
+  latest.current = { text, value, onSave };
+  useEffect(() => () => {
+    const { text, value, onSave } = latest.current;
+    if (text.trim() !== value.trim()) void onSave(text.trim());
+  }, []);
 
   const commit = () => {
     if (text.trim() === value.trim()) return;

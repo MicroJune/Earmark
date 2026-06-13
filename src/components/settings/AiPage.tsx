@@ -73,6 +73,7 @@ export default function AiPage({
           <SectionTitle>② 填写对应的 API Key</SectionTitle>
           {provider === 'volcano' ? (
             <KeyInput
+              key="ark"
               label="火山方舟 API Key"
               placeholder="粘贴方舟 API Key,输入完自动保存"
               value={arkKey}
@@ -81,6 +82,7 @@ export default function AiPage({
             />
           ) : (
             <KeyInput
+              key="deepseek"
               label="DeepSeek API Key"
               placeholder="sk-…,输入完自动保存"
               value={deepseekKey}
