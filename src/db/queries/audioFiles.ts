@@ -39,6 +39,31 @@ export async function insertAudioFile(
   data: Pick<AudioFile, 'title' | 'uri'> & { categoryId?: number | null }
 ): Promise<number> {
   const db = await getDb();
+
+  // Re-link a backup-restored placeholder instead of creating a duplicate.
+  // A restored file has an empty uri (audio binaries aren't in the backup); its
+  // saved items + transcript are already attached to this row. Matching by title
+  // (case-insensitive) lets the user re-import the same audio and have playback,
+  // looping and review light up again automatically. We keep the row's existing
+  // category — the user is restoring audio, not reorganizing.
+  const placeholder = await db.getFirstAsync<{ id: number; has_transcript: number }>(
+    `SELECT af.id AS id,
+            EXISTS (SELECT 1 FROM segments s WHERE s.audio_file_id = af.id) AS has_transcript
+       FROM audio_files af
+      WHERE af.uri = '' AND lower(af.title) = lower(?)
+      LIMIT 1`,
+    [data.title]
+  );
+  if (placeholder) {
+    await db.runAsync(
+      `UPDATE audio_files
+          SET uri = ?, status = ?, error_message = NULL
+        WHERE id = ?`,
+      [data.uri, placeholder.has_transcript ? 'ready' : 'pending', placeholder.id]
+    );
+    return placeholder.id;
+  }
+
   const result = await db.runAsync(
     'INSERT INTO audio_files (title, uri, date_added, status, phrase_count, category_id) VALUES (?, ?, ?, ?, ?, ?)',
     [data.title, data.uri, Date.now(), 'pending', 0, data.categoryId ?? null]
