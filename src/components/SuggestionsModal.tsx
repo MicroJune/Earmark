@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, Modal, Pressable, FlatList,
   ActivityIndicator, StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 import type { PhraseSuggestion, SavedItemType, Segment } from '../types';
 import { getPhraseSuggestions, fetchMoreSuggestions } from '../services/suggestions';
 import { getSuggestionDensity, setSuggestionDensity, type SuggestionDensity } from '../services/settings';
@@ -40,6 +41,8 @@ function SuggestionCard({
   onToggleSave: () => void;
   onJump: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
@@ -49,14 +52,14 @@ function SuggestionCard({
           style={[styles.saveBtn, saved && styles.savedBtn]}
           onPress={onToggleSave}
         >
-          <Ionicons name={saved ? 'checkmark' : 'bookmark-outline'} size={14} color={saved ? COLORS.success : '#fff'} />
+          <Ionicons name={saved ? 'checkmark' : 'bookmark-outline'} size={14} color={saved ? c.success : '#fff'} />
           <Text style={[styles.saveBtnText, saved && styles.savedBtnText]}>{saved ? '已保存' : 'Save'}</Text>
         </Pressable>
       </View>
       <Text style={styles.reason}>{suggestion.reason}</Text>
       <Text style={styles.context} numberOfLines={2}>"{suggestion.contextSentence}"</Text>
       <Pressable style={styles.jumpBtn} onPress={onJump} hitSlop={6}>
-        <Ionicons name="play-circle-outline" size={14} color={COLORS.primary} />
+        <Ionicons name="play-circle-outline" size={14} color={c.primary} />
         <Text style={styles.jumpText}>{formatDuration(suggestion.startTime)}</Text>
       </Pressable>
     </View>
@@ -70,6 +73,8 @@ export default function SuggestionsModal({
   onClose: () => void;
   audioFileId: number;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const insets = useSafeAreaInsets();
   const scrollIndicatorRef = useRef<ScrollIndicatorHandle>(null);
   const [loading, setLoading] = useState(false);
@@ -189,12 +194,12 @@ export default function SuggestionsModal({
       <View style={[styles.modal, { paddingTop: Math.max(insets.top, 12) }]}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <Ionicons name="sparkles" size={18} color={COLORS.primary} />
+            <Ionicons name="sparkles" size={18} color={c.primary} />
             <Text style={styles.title}>Suggested phrases</Text>
           </View>
           <View style={styles.headerActions}>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={24} color={COLORS.text} />
+              <Ionicons name="close" size={24} color={c.text} />
             </Pressable>
           </View>
         </View>
@@ -217,14 +222,14 @@ export default function SuggestionsModal({
 
         {loading && (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+            <ActivityIndicator size="large" color={c.primary} />
             <Text style={styles.loadingText}>AI 正在通读全文,挑选值得学的短语…</Text>
           </View>
         )}
 
         {!loading && error && (
           <View style={styles.center}>
-            <Ionicons name="cloud-offline-outline" size={48} color={COLORS.border} />
+            <Ionicons name="cloud-offline-outline" size={48} color={c.border} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         )}
@@ -275,43 +280,45 @@ export default function SuggestionsModal({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  modal:        { flex: 1, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  modal:        { flex: 1, backgroundColor: c.background },
   header:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingBottom: 12 },
   headerLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 16 },
-  title:        { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  title:        { fontSize: 18, fontWeight: '700', color: c.text },
 
   center:       { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
-  loadingText:  { marginTop: 16, fontSize: 14, color: COLORS.textSecondary, textAlign: 'center' },
-  errorText:    { marginTop: 16, fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 21 },
+  loadingText:  { marginTop: 16, fontSize: 14, color: c.textSecondary, textAlign: 'center' },
+  errorText:    { marginTop: 16, fontSize: 14, color: c.textSecondary, textAlign: 'center', lineHeight: 21 },
 
   listWrap:     { flex: 1 },
   list:         { padding: 16, paddingTop: 4 },
-  card:         { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
+  card:         { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
   cardTop:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
-  phrase:       { fontSize: 16, fontWeight: '700', color: COLORS.text, flex: 1 },
-  reason:       { fontSize: 13, color: COLORS.textSecondary, lineHeight: 19, marginBottom: 6 },
-  context:      { fontSize: 13, color: COLORS.textSecondary, fontStyle: 'italic', lineHeight: 19, marginBottom: 8 },
+  phrase:       { fontSize: 16, fontWeight: '700', color: c.text, flex: 1 },
+  reason:       { fontSize: 13, color: c.textSecondary, lineHeight: 19, marginBottom: 6 },
+  context:      { fontSize: 13, color: c.textSecondary, fontStyle: 'italic', lineHeight: 19, marginBottom: 8 },
 
-  saveBtn:      { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  saveBtn:      { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   saveBtnText:  { color: '#fff', fontSize: 12, fontWeight: '600' },
-  savedBtn:     { backgroundColor: COLORS.success + '22' },
-  savedBtnText: { color: COLORS.success },
+  savedBtn:     { backgroundColor: c.success + '22' },
+  savedBtnText: { color: c.success },
 
   jumpBtn:      { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' },
-  jumpText:     { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  jumpText:     { fontSize: 12, color: c.primary, fontWeight: '600' },
 
   densityRow:       { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingBottom: 10 },
-  densityLabel:     { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600', marginRight: 2 },
-  densityChip:      { borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
-  densityChipActive:{ borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  densityChipText:  { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
-  densityChipTextActive: { color: COLORS.primary },
+  densityLabel:     { fontSize: 12, color: c.textSecondary, fontWeight: '600', marginRight: 2 },
+  densityChip:      { borderWidth: 1, borderColor: c.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 },
+  densityChipActive:{ borderColor: c.primary, backgroundColor: c.primaryLight },
+  densityChipText:  { fontSize: 12, color: c.textSecondary, fontWeight: '600' },
+  densityChipTextActive: { color: c.primary },
 
   footer:       { alignItems: 'center', paddingVertical: 16, gap: 8 },
-  noMoreText:   { fontSize: 12, color: COLORS.textSecondary },
-  moreBtn:      { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primary, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  noMoreText:   { fontSize: 12, color: c.textSecondary },
+  moreBtn:      { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.primary, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
   moreBtnText:  { color: '#fff', fontSize: 13, fontWeight: '700' },
-  footerCount:  { fontSize: 11, color: COLORS.textSecondary },
-});
+  footerCount:  { fontSize: 11, color: c.textSecondary },
+  });
+}

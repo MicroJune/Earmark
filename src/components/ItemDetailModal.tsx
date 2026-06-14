@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 import type { SavedItem, MasteryLevel } from '../types';
 import { useLibraryStore } from '../store/libraryStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
@@ -16,19 +17,23 @@ import { usePreviewStore } from '../store/previewStore';
 import { lookupWord, getWordForms, TAG_LABELS } from '../services/dictionary';
 import { getHideMeaning } from '../services/settings';
 
-const MASTERY_COLOR: Record<MasteryLevel, string> = {
-  new:      COLORS.warning,
-  learning: COLORS.primary,
-  mastered: COLORS.success,
-};
+const masteryColor = (c: Palette): Record<MasteryLevel, string> => ({
+  new:      c.warning,
+  learning: c.primary,
+  mastered: c.success,
+});
 
 function SectionTitle({ children }: { children: string }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
 // Renders the context sentence with the saved phrase highlighted in place, so
 // the user instantly sees WHERE the word sat in what they heard.
 function HighlightedSentence({ sentence, phrase }: { sentence: string; phrase: string }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const lower = sentence.toLowerCase();
   const at = lower.indexOf(phrase.toLowerCase().trim());
   if (at < 0 || !phrase.trim()) {
@@ -50,6 +55,9 @@ export default function ItemDetailModal({
   item: SavedItem | null;
   onClose: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const MASTERY_COLOR = useMemo(() => masteryColor(c), [c]);
   const insets = useSafeAreaInsets();
   const enrichItem = useLibraryStore(s => s.enrichItem);
   const editItemText = useLibraryStore(s => s.editItemText);
@@ -187,11 +195,11 @@ export default function ItemDetailModal({
           <View style={{ flex: 1 }} />
           {!editing && (
             <Pressable onPress={startEditing} hitSlop={8} style={{ marginRight: 14 }}>
-              <Ionicons name="pencil" size={20} color={COLORS.textSecondary} />
+              <Ionicons name="pencil" size={20} color={c.textSecondary} />
             </Pressable>
           )}
           <Pressable onPress={handleClose} hitSlop={8}>
-            <Ionicons name="close" size={24} color={COLORS.text} />
+            <Ionicons name="close" size={24} color={c.text} />
           </Pressable>
         </View>
 
@@ -237,16 +245,16 @@ export default function ItemDetailModal({
               <Text style={styles.speakBtnText}>Speak</Text>
             </Pressable>
             <Pressable style={styles.speakBtnOutline} onPress={() => speakSlowly(live.text)}>
-              <Ionicons name="volume-low" size={16} color={COLORS.primary} />
+              <Ionicons name="volume-low" size={16} color={c.primary} />
               <Text style={styles.speakBtnOutlineText}>Slow</Text>
             </Pressable>
             <Pressable style={styles.speakBtnOutline} onPress={handleHearOriginal}>
               {previewActive === 'loading'
-                ? <ActivityIndicator size="small" color={COLORS.primary} />
+                ? <ActivityIndicator size="small" color={c.primary} />
                 : <Ionicons
                     name={previewActive === 'playing' ? 'pause' : 'musical-notes'}
                     size={16}
-                    color={COLORS.primary}
+                    color={c.primary}
                   />}
               <Text style={styles.speakBtnOutlineText}>
                 {previewActive === 'playing' ? 'Pause' : 'Original'}
@@ -299,7 +307,7 @@ export default function ItemDetailModal({
           {/* Meaning — hidden until tapped, for active recall */}
           {!revealed ? (
             <Pressable style={styles.revealGate} onPress={() => setRevealed(true)}>
-              <Ionicons name="eye-off-outline" size={18} color={COLORS.primary} />
+              <Ionicons name="eye-off-outline" size={18} color={c.primary} />
               <Text style={styles.revealGateText}>先回忆这个词的意思 — 点击揭晓</Text>
             </Pressable>
           ) : (
@@ -342,7 +350,7 @@ export default function ItemDetailModal({
                       {enrichment.examples.map((ex, i) => (
                         <Pressable key={i} style={styles.exampleCard} onPress={() => speak(ex.en)}>
                           <View style={styles.exampleHeader}>
-                            <Ionicons name="volume-medium-outline" size={14} color={COLORS.primary} />
+                            <Ionicons name="volume-medium-outline" size={14} color={c.primary} />
                             <Text style={styles.exampleEn}>{ex.en}</Text>
                           </View>
                           <Text style={styles.exampleZh}>{ex.zh}</Text>
@@ -355,7 +363,7 @@ export default function ItemDetailModal({
                     <>
                       <SectionTitle>Tip</SectionTitle>
                       <View style={styles.tipCard}>
-                        <Ionicons name="bulb-outline" size={16} color={COLORS.warning} />
+                        <Ionicons name="bulb-outline" size={16} color={c.warning} />
                         <Text style={styles.tipText}>{enrichment.tip}</Text>
                       </View>
                     </>
@@ -372,7 +380,7 @@ export default function ItemDetailModal({
                     value={noteText}
                     onChangeText={setNoteText}
                     placeholder="写下你自己的联想、记忆方法或用法… (自己写的最难忘)"
-                    placeholderTextColor={COLORS.textSecondary}
+                    placeholderTextColor={c.textSecondary}
                     multiline
                     autoFocus
                   />
@@ -388,11 +396,11 @@ export default function ItemDetailModal({
               ) : live.note ? (
                 <Pressable style={styles.noteCard} onPress={startEditingNote}>
                   <Text style={styles.noteText}>{live.note}</Text>
-                  <Ionicons name="pencil" size={14} color={COLORS.textSecondary} />
+                  <Ionicons name="pencil" size={14} color={c.textSecondary} />
                 </Pressable>
               ) : (
                 <Pressable style={styles.addNoteBtn} onPress={startEditingNote}>
-                  <Ionicons name="add" size={16} color={COLORS.primary} />
+                  <Ionicons name="add" size={16} color={c.primary} />
                   <Text style={styles.addNoteText}>添加我的记忆笔记</Text>
                 </Pressable>
               )}
@@ -424,74 +432,76 @@ export default function ItemDetailModal({
   );
 }
 
-const styles = StyleSheet.create({
-  modal:        { flex: 1, padding: 24, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  modal:        { flex: 1, padding: 24, backgroundColor: c.background },
   header:       { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 },
 
-  typeBadge:    { backgroundColor: COLORS.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  typeBadgeText:{ fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
+  typeBadge:    { backgroundColor: c.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  typeBadgeText:{ fontSize: 11, color: c.textSecondary, fontWeight: '600' },
   masteryBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   masteryText:  { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
 
-  itemText:     { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: 14 },
+  itemText:     { fontSize: 26, fontWeight: '800', color: c.text, marginBottom: 14 },
 
   speakRow:     { flexDirection: 'row', gap: 10, marginBottom: 8 },
-  speakBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primary, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  speakBtn:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.primary, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
   speakBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  speakBtnOutline:     { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: COLORS.primary, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
-  speakBtnOutlineText: { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
+  speakBtnOutline:     { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: c.primary, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8 },
+  speakBtnOutlineText: { color: c.primary, fontSize: 13, fontWeight: '600' },
 
-  sectionTitle: { fontSize: 12, fontWeight: '700', color: COLORS.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 20, marginBottom: 8 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: c.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 20, marginBottom: 8 },
 
-  phonetic:        { fontSize: 14, color: COLORS.textSecondary, marginBottom: 6 },
-  pronunciationStatus: { fontSize: 12, color: COLORS.textSecondary, marginBottom: 8 },
-  dictTranslation: { fontSize: 14, color: COLORS.text, lineHeight: 22 },
+  phonetic:        { fontSize: 14, color: c.textSecondary, marginBottom: 6 },
+  pronunciationStatus: { fontSize: 12, color: c.textSecondary, marginBottom: 8 },
+  dictTranslation: { fontSize: 14, color: c.text, lineHeight: 22 },
   tagRow:          { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  tagChip:         { backgroundColor: COLORS.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  tagText:         { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
+  tagChip:         { backgroundColor: c.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  tagText:         { fontSize: 11, color: c.textSecondary, fontWeight: '600' },
 
-  context:      { fontSize: 14, color: COLORS.text, fontStyle: 'italic', lineHeight: 21 },
-  contextHighlight: { fontStyle: 'italic', fontWeight: '800', color: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  source:       { fontSize: 11, color: COLORS.textSecondary, marginTop: 4 },
+  context:      { fontSize: 14, color: c.text, fontStyle: 'italic', lineHeight: 21 },
+  contextHighlight: { fontStyle: 'italic', fontWeight: '800', color: c.primary, backgroundColor: c.primaryLight },
+  source:       { fontSize: 11, color: c.textSecondary, marginTop: 4 },
 
   formRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  formChip:     { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
-  formText:     { fontSize: 13, color: COLORS.text },
+  formChip:     { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 },
+  formText:     { fontSize: 13, color: c.text },
 
-  revealGate:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primaryLight, borderRadius: 12, paddingVertical: 18, marginTop: 20 },
-  revealGateText: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  revealGate:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: c.primaryLight, borderRadius: 12, paddingVertical: 18, marginTop: 20 },
+  revealGateText: { fontSize: 14, fontWeight: '600', color: c.primary },
 
-  noteCard:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.warning + '12', borderRadius: 10, padding: 12 },
-  noteText:     { flex: 1, fontSize: 14, color: COLORS.text, lineHeight: 21 },
-  addNoteBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: COLORS.primary, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
-  addNoteText:  { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
+  noteCard:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.warning + '12', borderRadius: 10, padding: 12 },
+  noteText:     { flex: 1, fontSize: 14, color: c.text, lineHeight: 21 },
+  addNoteBtn:   { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: c.primary, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  addNoteText:  { fontSize: 13, color: c.primary, fontWeight: '600' },
 
-  translation:  { fontSize: 16, color: COLORS.text, lineHeight: 24 },
-  definition:   { fontSize: 14, color: COLORS.text, lineHeight: 21 },
+  translation:  { fontSize: 16, color: c.text, lineHeight: 24 },
+  definition:   { fontSize: 14, color: c.text, lineHeight: 21 },
 
   synonymRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  synonymChip:  { backgroundColor: COLORS.primaryLight, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
-  synonymText:  { fontSize: 13, color: COLORS.primary, fontWeight: '600' },
+  synonymChip:  { backgroundColor: c.primaryLight, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  synonymText:  { fontSize: 13, color: c.primary, fontWeight: '600' },
 
-  exampleCard:  { backgroundColor: COLORS.surface, borderRadius: 10, padding: 12, marginBottom: 8 },
+  exampleCard:  { backgroundColor: c.surface, borderRadius: 10, padding: 12, marginBottom: 8 },
   exampleHeader:{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  exampleEn:    { flex: 1, fontSize: 14, color: COLORS.text, lineHeight: 20 },
-  exampleZh:    { fontSize: 13, color: COLORS.textSecondary, marginTop: 4, lineHeight: 19 },
+  exampleEn:    { flex: 1, fontSize: 14, color: c.text, lineHeight: 20 },
+  exampleZh:    { fontSize: 13, color: c.textSecondary, marginTop: 4, lineHeight: 19 },
 
-  tipCard:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: COLORS.warning + '15', borderRadius: 10, padding: 12 },
-  tipText:      { flex: 1, fontSize: 13, color: COLORS.text, lineHeight: 19 },
+  tipCard:      { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: c.warning + '15', borderRadius: 10, padding: 12 },
+  tipText:      { flex: 1, fontSize: 13, color: c.text, lineHeight: 19 },
 
-  editBox:      { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 16 },
-  editLabel:    { fontSize: 12, fontWeight: '700', color: COLORS.textSecondary, marginBottom: 4, marginTop: 8 },
-  editInput:    { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, padding: 10, fontSize: 14, color: COLORS.text, backgroundColor: COLORS.background },
+  editBox:      { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 16 },
+  editLabel:    { fontSize: 12, fontWeight: '700', color: c.textSecondary, marginBottom: 4, marginTop: 8 },
+  editInput:    { borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, fontSize: 14, color: c.text, backgroundColor: c.background },
   editActions:  { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 12 },
   editCancelBtn:{ paddingHorizontal: 14, paddingVertical: 8 },
-  editCancelText:{ color: COLORS.textSecondary, fontSize: 14 },
-  editSaveBtn:  { backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  editCancelText:{ color: c.textSecondary, fontSize: 14 },
+  editSaveBtn:  { backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
   editSaveText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  editHint:     { fontSize: 11, color: COLORS.textSecondary, marginTop: 8, lineHeight: 16 },
+  editHint:     { fontSize: 11, color: c.textSecondary, marginTop: 8, lineHeight: 16 },
 
-  enrichBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primary, borderRadius: 12, padding: 14, marginTop: 24 },
+  enrichBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: c.primary, borderRadius: 12, padding: 14, marginTop: 24 },
   enrichBtnText:{ color: '#fff', fontSize: 14, fontWeight: '700' },
-  enrichHint:   { fontSize: 12, color: COLORS.textSecondary, textAlign: 'center', marginTop: 10, lineHeight: 18 },
-});
+  enrichHint:   { fontSize: 12, color: c.textSecondary, textAlign: 'center', marginTop: 10, lineHeight: 18 },
+  });
+}

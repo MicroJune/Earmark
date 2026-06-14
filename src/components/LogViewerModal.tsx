@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   Modal, View, Text, FlatList, Pressable, StyleSheet,
   Share, Alert, PanResponder, Animated,
@@ -6,7 +6,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { type Level, type LogEntry, getLogEntries, clearLogEntries, clearLogFile, getLogFilePath, subscribeToLogs, setLiveForward, isLiveForwardEnabled } from '../utils/logger';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 
 const LEVEL_COLOR: Record<Level, string> = {
   DEBUG: '#94A3B8',
@@ -18,6 +19,8 @@ const LEVEL_COLOR: Record<Level, string> = {
 const LOG_SERVER_URL = 'http://localhost:8765/logs';
 
 function LogRow({ item }: { item: LogEntry }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const color = LEVEL_COLOR[item.level];
   const ctx = item.context && Object.keys(item.context).length
     ? Object.entries(item.context).map(([k, v]) => `${k}=${v}`).join(' ')
@@ -41,6 +44,8 @@ interface Props {
 }
 
 export default function LogViewerModal({ visible, onClose }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const insets = useSafeAreaInsets();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<Level | null>(null);
@@ -160,10 +165,10 @@ export default function LogViewerModal({ visible, onClose }: Props) {
                 <Ionicons name="laptop-outline" size={20} color={sending ? '#475569' : '#22D3EE'} />
               </Pressable>
               <Pressable onPress={handleShare} style={styles.iconBtn}>
-                <Ionicons name="share-outline" size={20} color={COLORS.primary} />
+                <Ionicons name="share-outline" size={20} color={c.primary} />
               </Pressable>
               <Pressable onPress={handleClear} style={styles.iconBtn}>
-                <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                <Ionicons name="trash-outline" size={20} color={c.error} />
               </Pressable>
               <Pressable onPress={onClose} style={styles.iconBtn}>
                 <Ionicons name="close" size={22} color='#94A3B8' />
@@ -203,7 +208,8 @@ export default function LogViewerModal({ visible, onClose }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
   overlay:       { flex: 1, justifyContent: 'flex-end' },
   sheet:         { flex: 1, backgroundColor: '#0F172A', borderTopLeftRadius: 16, borderTopRightRadius: 16, marginTop: 60 },
 
@@ -218,9 +224,9 @@ const styles = StyleSheet.create({
 
   filters:       { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingBottom: 10 },
   chip:          { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#334155' },
-  chipActive:    { backgroundColor: COLORS.primary + '22', borderColor: COLORS.primary },
+  chipActive:    { backgroundColor: c.primary + '22', borderColor: c.primary },
   chipText:      { fontSize: 12, fontWeight: '600', color: '#94A3B8' },
-  chipTextActive:{ color: COLORS.primary },
+  chipTextActive:{ color: c.primary },
 
   list:          { paddingHorizontal: 12, paddingBottom: 24 },
   empty:         { color: '#475569', textAlign: 'center', marginTop: 40, fontSize: 14 },
@@ -232,4 +238,5 @@ const styles = StyleSheet.create({
   rowMsg:        { fontSize: 12, color: '#CBD5E1', fontFamily: 'monospace' },
   rowCtx:        { fontSize: 10, color: '#5EEAD4', fontFamily: 'monospace', marginTop: 1 },
   rowDetail:     { fontSize: 11, color: '#64748B', fontFamily: 'monospace', marginTop: 2 },
-});
+  });
+}

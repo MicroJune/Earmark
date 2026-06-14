@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Switch, StyleSheet } from 'react-native';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 import type { AiProvider } from '../../services/settings';
 import { PageIntro, SectionTitle, Hint, Segmented, KeyInput } from './ui';
 
@@ -25,6 +26,8 @@ export default function AiPage({
   arkKey, onSaveArkKey, deepseekKey, onSaveDeepseekKey,
   hideMeaning, onHideMeaning,
 }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <View>
       {/* 复习偏好 — 主动回忆 */}
@@ -37,7 +40,7 @@ export default function AiPage({
         <Switch
           value={hideMeaning}
           onValueChange={onHideMeaning}
-          trackColor={{ true: COLORS.primary }}
+          trackColor={{ true: c.primary }}
         />
       </View>
 
@@ -54,7 +57,7 @@ export default function AiPage({
         <Switch
           value={enabled}
           onValueChange={onEnabled}
-          trackColor={{ true: COLORS.primary }}
+          trackColor={{ true: c.primary }}
         />
       </View>
 
@@ -98,8 +101,10 @@ export default function AiPage({
   );
 }
 
-const styles = StyleSheet.create({
-  switchRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14 },
-  switchTitle:    { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  switchSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-});
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  switchRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 12, padding: 14 },
+  switchTitle:    { fontSize: 14, fontWeight: '600', color: c.text },
+  switchSubtitle: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+  });
+}

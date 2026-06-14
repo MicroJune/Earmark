@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Modal, View, Text, Pressable, FlatList, Alert, StyleSheet,
 } from 'react-native';
 import { File, Directory, Paths } from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { deleteAudioFileAndItems, previewAudioFileDeletion } from '../services/fileDeletion';
 import { getClipsStorageBytes } from '../services/clips';
@@ -57,6 +58,8 @@ interface FileRow {
 export default function StorageModal({
   visible, onClose,
 }: { visible: boolean; onClose: () => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const insets = useSafeAreaInsets();
   const audioFiles = useAudioFilesStore(s => s.audioFiles);
   const [rows, setRows] = useState<FileRow[]>([]);
@@ -120,7 +123,7 @@ export default function StorageModal({
         <View style={styles.header}>
           <Text style={styles.title}>Storage</Text>
           <Pressable onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={24} color={COLORS.text} />
+            <Ionicons name="close" size={24} color={c.text} />
           </Pressable>
         </View>
 
@@ -177,22 +180,24 @@ export default function StorageModal({
   );
 }
 
-const styles = StyleSheet.create({
-  modal:       { flex: 1, padding: 24, backgroundColor: COLORS.background },
-  header:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  title:       { fontSize: 20, fontWeight: '700', color: COLORS.text },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+    modal:       { flex: 1, padding: 24, backgroundColor: c.background },
+    header:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    title:       { fontSize: 20, fontWeight: '700', color: c.text },
 
-  totals:      { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 16 },
-  totalRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
-  totalLabel:  { fontSize: 14, color: COLORS.text },
-  totalValue:  { fontSize: 14, fontWeight: '700', color: COLORS.text },
-  hint:        { fontSize: 12, color: COLORS.textSecondary, lineHeight: 17, marginTop: 8 },
+    totals:      { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 16 },
+    totalRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+    totalLabel:  { fontSize: 14, color: c.text },
+    totalValue:  { fontSize: 14, fontWeight: '700', color: c.text },
+    hint:        { fontSize: 12, color: c.textSecondary, lineHeight: 17, marginTop: 8 },
 
-  row:         { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 8 },
-  rowTitle:    { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  rowMeta:     { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  removeBtn:   { borderWidth: 1, borderColor: COLORS.error, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  removeBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.error },
+    row:         { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 8 },
+    rowTitle:    { fontSize: 14, fontWeight: '600', color: c.text },
+    rowMeta:     { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+    removeBtn:   { borderWidth: 1, borderColor: c.error, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+    removeBtnText: { fontSize: 12, fontWeight: '600', color: c.error },
 
-  empty:       { textAlign: 'center', color: COLORS.textSecondary, marginTop: 24, fontSize: 13 },
-});
+    empty:       { textAlign: 'center', color: c.textSecondary, marginTop: 24, fontSize: 13 },
+  });
+}
