@@ -5,7 +5,7 @@ import {
   type AudioPlayer,
   type AudioStatus,
 } from 'expo-audio';
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 import type { EventSubscription } from 'expo-modules-core';
 import type { PlaybackRate, SavedItem } from '../types';
 import { usePlaybackStore } from '../store/playbackStore';
@@ -24,15 +24,13 @@ let _activeAudioFileId: number | null = null;
 let _durationPersisted = false;
 let _lastPersistedPosition = 0;
 
-// TEMP DIAGNOSTIC (problem 1): detect bursts of playbackStatusUpdate callbacks.
-// Normal cadence is ~100ms (updateInterval). If on unlock we see many callbacks
-// arriving <60ms apart, the native layer is draining a backlog → confirms the
-// "catch-up flood" theory. Logged only when a burst ends, so it's quiet during
-// normal playback.
-let _lastStatusWall = 0;
-let _burstCount = 0;
-let _burstStartWall = 0;
-let _burstStartPos = 0;
+// Whether the app is in the foreground. The word highlight + transcript
+// auto-scroll are gated on this (see handlePlaybackStatus): updating
+// activeWordIndex while the screen is locked is wasted work AND it accumulates
+// scroll operations that froze the main thread for ~30s on unlock. Updated by an
+// AppState listener registered once in setupAudioMode().
+let _appActive = true;
+let _appStateSub: { remove: () => void } | null = null;
 
 // How often (seconds of playback) the position is checkpointed to the DB.
 // Crash-safety only — the authoritative write happens in unloadAudio().
@@ -62,6 +60,13 @@ export async function setupAudioMode(): Promise<void> {
     // apps' audio when playback starts — appropriate for podcasts.
     interruptionMode: 'doNotMix',
   });
+
+  // Track foreground/background so playback status updates can skip the
+  // expensive highlight/scroll work while the screen is locked.
+  _appActive = AppState.currentState === 'active';
+  if (!_appStateSub) {
+    _appStateSub = AppState.addEventListener('change', s => { _appActive = s === 'active'; });
+  }
 }
 
 // ─── Playback status handler ──────────────────────────────────────────────────
@@ -88,24 +93,16 @@ function handlePlaybackStatus(status: AudioStatus): void {
   const positionSeconds = status.currentTime;
   const store = usePlaybackStore.getState();
 
-  // TEMP DIAGNOSTIC (problem 1): burst detector.
-  {
-    const nowWall = Date.now();
-    const gap = _lastStatusWall === 0 ? 9999 : nowWall - _lastStatusWall;
-    _lastStatusWall = nowWall;
-    if (gap < 60) {
-      if (_burstCount === 0) { _burstStartWall = nowWall; _burstStartPos = positionSeconds; }
-      _burstCount++;
-    } else {
-      if (_burstCount >= 3) {
-        log.warn('diag-p1', `status BURST: ${_burstCount} updates in ${nowWall - _burstStartWall}ms, pos ${_burstStartPos.toFixed(1)}s→${positionSeconds.toFixed(1)}s (Δ${(positionSeconds - _burstStartPos).toFixed(1)}s)`);
-      }
-      _burstCount = 0;
-    }
-  }
-
   persistDurationOnce(status);
-  store.setPosition(positionSeconds);
+  // Foreground only: recompute the active word (drives transcript re-render +
+  // auto-scroll). While locked we keep currentPosition fresh but DON'T touch
+  // activeWordIndex — that stops the background churn that accumulated into the
+  // multi-second unlock freeze. The highlight is recomputed + snapped on resume.
+  if (_appActive) {
+    store.setPosition(positionSeconds);
+  } else {
+    store.setPositionQuiet(positionSeconds);
+  }
   store.setIsPlaying(status.playing);
   checkpointPosition(positionSeconds);
 

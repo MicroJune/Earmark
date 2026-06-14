@@ -47,6 +47,7 @@ interface PlaybackStore {
   loadTranscript: (audioFileId: number) => Promise<void>;
   unloadTranscript: () => void;
   setPosition: (position: number) => void;  // called by expo-audio every ~100ms
+  setPositionQuiet: (position: number) => void; // position only — no activeWordIndex recompute (used while backgrounded)
   setIsPlaying: (isPlaying: boolean) => void;
   seekToWord: (wordIndex: number) => void;  // optimistic: updates highlight before audio catches up
   setPlaybackRate: (rate: PlaybackRate) => void;
@@ -113,6 +114,11 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
       activeWordIndex: findActiveWordIndex(transcript.wordStartTimes, position),
     });
   },
+
+  // Updates only the playback position, leaving activeWordIndex untouched. Used
+  // while the app is backgrounded so the transcript doesn't re-render or
+  // auto-scroll (the highlight is recomputed once on return to foreground).
+  setPositionQuiet: (position) => set({ currentPosition: position }),
 
   setIsPlaying: (isPlaying) => set({ isPlaying }),
 
