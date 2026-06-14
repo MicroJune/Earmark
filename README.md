@@ -108,10 +108,7 @@ After the dev build is installed once, day-to-day work is just
 
 See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)** for the offline engine in detail and
 **[DEVELOPMENT.md](DEVELOPMENT.md)** for local dev notes (incl. running over USB
-from WSL).
-
-To ship builds and OTA updates (EAS Build/Update — `development` / `preview` /
-`production` profiles), see **[deployment.md](deployment.md)**.
+from WSL, and EAS build/preview/production + OTA updates).
 
 ### Optional API keys
 

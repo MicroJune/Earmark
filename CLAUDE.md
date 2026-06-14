@@ -129,7 +129,7 @@ User reviews saved items via flashcard/quiz mode
 
 ## Deployment
 
-EAS Build/Update workflow (development / preview / production profiles, OTA updates, runtimeVersion=appVersion caveats) is documented in `deployment.md`.
+EAS Build/Update workflow (development / preview / production profiles, OTA updates, runtimeVersion=appVersion caveats) is documented in `DEVELOPMENT.md` (§ Build & distribute).
 
 ## Next Steps
 
