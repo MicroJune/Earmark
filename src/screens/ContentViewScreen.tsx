@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList, Segment, Word, SavedItemType, PlaybackRate } from '../types';
-import { COLORS } from '../constants/colors';
+import { type Palette } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
 import { usePlaybackStore, type RepeatMode } from '../store/playbackStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { useLibraryStore } from '../store/libraryStore';
@@ -26,19 +27,23 @@ import SuggestionsModal from '../components/SuggestionsModal';
 import ScrollIndicator, { type ScrollIndicatorHandle } from '../components/ScrollIndicator';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ContentView'>;
+type Styles = ReturnType<typeof makeStyles>;
 
 const PLAYBACK_RATES: PlaybackRate[] = [0.75, 1, 1.25, 1.5];
 
 // ─── Word chip ────────────────────────────────────────────────────────────────
+// Receives `styles` from its SegmentRow parent so a StyleSheet isn't rebuilt for
+// every word (there are thousands) — only once per visible segment.
 
 const WordChip = memo(({
-  word, isActive, isSelected, onPress, onLongPress,
+  word, isActive, isSelected, onPress, onLongPress, styles,
 }: {
   word: Word;
   isActive: boolean;
   isSelected: boolean;
   onPress: () => void;
   onLongPress: () => void;
+  styles: Styles;
 }) => (
   <Pressable onPress={onPress} onLongPress={onLongPress} hitSlop={4}>
     <Text style={[
@@ -56,6 +61,8 @@ const WordChip = memo(({
 interface SegmentItem { segment: Segment; words: Word[] }
 
 const SegmentRow = memo(({ segment, words }: SegmentItem) => {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   // Only re-renders when the active word enters/leaves this segment's range
   const activeWordIndex = usePlaybackStore(s =>
     s.activeWordIndex >= segment.wordStartIndex && s.activeWordIndex <= segment.wordEndIndex
@@ -107,6 +114,7 @@ const SegmentRow = memo(({ segment, words }: SegmentItem) => {
               isSelected={isSelected}
               onPress={() => handleWordPress(w.wordIndex)}
               onLongPress={() => handleWordLongPress(w.wordIndex)}
+              styles={styles}
             />
           );
         })}
@@ -121,6 +129,8 @@ const SegmentRow = memo(({ segment, words }: SegmentItem) => {
 // ─── Seek bar ─────────────────────────────────────────────────────────────────
 
 function SeekBar({ position, duration }: { position: number; duration: number }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [barWidth, setBarWidth] = useState(0);
   const progress = duration > 0 ? Math.min(1, position / duration) : 0;
 
@@ -150,6 +160,8 @@ function SeekBar({ position, duration }: { position: number; duration: number })
 // ─── Audio player bar ─────────────────────────────────────────────────────────
 
 function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?: () => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const isPlaying      = usePlaybackStore(s => s.isPlaying);
   const currentPosition = usePlaybackStore(s => s.currentPosition);
   const playbackRate   = usePlaybackStore(s => s.playbackRate);
@@ -191,7 +203,7 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
 
         <View style={styles.transport}>
           <Pressable style={styles.skipBtn} onPress={() => skip(-10)} hitSlop={6}>
-            <Ionicons name="play-back" size={20} color={COLORS.text} />
+            <Ionicons name="play-back" size={20} color={c.text} />
             <Text style={styles.skipLabel}>10</Text>
           </Pressable>
           <Pressable
@@ -207,7 +219,7 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
             />
           </Pressable>
           <Pressable style={styles.skipBtn} onPress={() => skip(10)} hitSlop={6}>
-            <Ionicons name="play-forward" size={20} color={COLORS.text} />
+            <Ionicons name="play-forward" size={20} color={c.text} />
             <Text style={styles.skipLabel}>10</Text>
           </Pressable>
         </View>
@@ -217,7 +229,7 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
             style={[styles.sideChip, repeatActive && styles.sideChipActive]}
             onPress={cycleRepeat}
           >
-            <Ionicons name="repeat" size={16} color={repeatActive ? COLORS.primary : COLORS.textSecondary} />
+            <Ionicons name="repeat" size={16} color={repeatActive ? c.primary : c.textSecondary} />
             {repeatMode === 'one' && <Text style={styles.repeatBadge}>1</Text>}
             {repeatMode === 'all' && <Text style={styles.repeatBadge}>∞</Text>}
           </Pressable>
@@ -230,6 +242,8 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
 // ─── Selection / save bar ─────────────────────────────────────────────────────
 
 function SelectionBar({ audioFileId }: { audioFileId: number }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const transcript    = usePlaybackStore(s => s.transcript);
   const selectionStart = usePlaybackStore(s => s.selectionStart);
   const selectionEnd  = usePlaybackStore(s => s.selectionEnd);
@@ -284,18 +298,12 @@ function SelectionBar({ audioFileId }: { audioFileId: number }) {
     }
   };
 
-  const inferType = (): SavedItemType => {
-    if (count === 1) return 'word';
-    if (count >= 6) return 'sentence';
-    return 'phrase';
-  };
-
   return (
     <View style={styles.selectionBar}>
       <View style={styles.selectionHeader}>
         <Text style={styles.selectionText} numberOfLines={2}>"{selectedText}"</Text>
         <Pressable onPress={clearSelection} hitSlop={8}>
-          <Ionicons name="close-circle" size={22} color={COLORS.textSecondary} />
+          <Ionicons name="close-circle" size={22} color={c.textSecondary} />
         </Pressable>
       </View>
 
@@ -317,15 +325,15 @@ function SelectionBar({ audioFileId }: { audioFileId: number }) {
 
       <View style={styles.selectionActions}>
         <Pressable style={styles.extendBtn} onPress={extendLeft} hitSlop={4}>
-          <Ionicons name="chevron-back" size={16} color={COLORS.primary} />
+          <Ionicons name="chevron-back" size={16} color={c.primary} />
           <Text style={styles.extendBtnText}>1</Text>
         </Pressable>
         <Pressable style={styles.extendBtn} onPress={extendRight} hitSlop={4}>
           <Text style={styles.extendBtnText}>1</Text>
-          <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+          <Ionicons name="chevron-forward" size={16} color={c.primary} />
         </Pressable>
         <Pressable style={styles.extendBtn} onPress={selectWholeSentence} hitSlop={4}>
-          <Ionicons name="text-outline" size={14} color={COLORS.primary} />
+          <Ionicons name="text-outline" size={14} color={c.primary} />
           <Text style={styles.extendBtnText}> Whole sentence</Text>
         </Pressable>
       </View>
@@ -351,6 +359,8 @@ function SelectionBar({ audioFileId }: { audioFileId: number }) {
 export default function ContentViewScreen({ route, navigation }: Props) {
   const { audioFileId } = route.params;
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
 
   const transcript     = usePlaybackStore(s => s.transcript);
   const activeWordIndex = usePlaybackStore(s => s.activeWordIndex);
@@ -446,9 +456,6 @@ export default function ContentViewScreen({ route, navigation }: Props) {
       s => activeWordIndex >= s.wordStartIndex && activeWordIndex <= s.wordEndIndex
     );
     if (segIndex === -1 || segIndex === lastActiveSegmentRef.current) return;
-    // TEMP DIAGNOSTIC (problem 1): record how far the active segment jumped and
-    // when. A storm of these right after an "AppState → active" line (each a
-    // big jump, animated) is the catch-up scroll thrashing FlashList.
     const prevSeg = lastActiveSegmentRef.current;
     lastActiveSegmentRef.current = segIndex;
 
@@ -537,7 +544,7 @@ export default function ContentViewScreen({ route, navigation }: Props) {
   if (!transcript) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={c.primary} />
         <Text style={styles.loadingText}>Loading transcript…</Text>
       </View>
     );
@@ -549,7 +556,7 @@ export default function ContentViewScreen({ route, navigation }: Props) {
       <View style={styles.topBar}>
         <Text style={styles.segmentCount}>{segmentItems.length} segments</Text>
         <Pressable style={styles.suggestBtn} onPress={() => setSuggestionsVisible(true)}>
-          <Ionicons name="sparkles" size={14} color={COLORS.primary} />
+          <Ionicons name="sparkles" size={14} color={c.primary} />
           <Text style={styles.suggestText}> Suggest phrases</Text>
         </Pressable>
       </View>
@@ -593,62 +600,64 @@ export default function ContentViewScreen({ route, navigation }: Props) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  screen:           { flex: 1, backgroundColor: COLORS.background },
-  center:           { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText:      { marginTop: 12, color: COLORS.textSecondary, fontSize: 14 },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  screen:           { flex: 1, backgroundColor: c.background },
+  center:           { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: c.background },
+  loadingText:      { marginTop: 12, color: c.textSecondary, fontSize: 14 },
 
-  topBar:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  segmentCount:     { fontSize: 12, color: COLORS.textSecondary },
-  suggestBtn:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, backgroundColor: COLORS.primaryLight, borderRadius: 20 },
-  suggestText:      { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  topBar:           { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
+  segmentCount:     { fontSize: 12, color: c.textSecondary },
+  suggestBtn:       { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, backgroundColor: c.primaryLight, borderRadius: 20 },
+  suggestText:      { fontSize: 12, color: c.primary, fontWeight: '600' },
 
   transcriptContainer: { flex: 1 },
   transcriptContent: { padding: 16, paddingBottom: 8 },
   segment:          { marginBottom: 16, padding: 10, borderRadius: 10 },
-  segmentLooping:   { backgroundColor: COLORS.primaryLight, borderWidth: 1, borderColor: COLORS.primary },
+  segmentLooping:   { backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.primary },
   wordRow:          { flexDirection: 'row', flexWrap: 'wrap' },
-  loopLabel:        { fontSize: 11, color: COLORS.primary, fontWeight: '600', marginTop: 4 },
+  loopLabel:        { fontSize: 11, color: c.primary, fontWeight: '600', marginTop: 4 },
 
-  word:             { fontSize: 16, color: COLORS.text, lineHeight: 26 },
-  wordActive:       { color: '#fff', backgroundColor: COLORS.primary, borderRadius: 4, overflow: 'hidden', paddingHorizontal: 2 },
-  wordSelected:     { backgroundColor: COLORS.selectedWord, borderRadius: 4, overflow: 'hidden', paddingHorizontal: 2 },
+  word:             { fontSize: 16, color: c.text, lineHeight: 26 },
+  wordActive:       { color: '#fff', backgroundColor: c.primary, borderRadius: 4, overflow: 'hidden', paddingHorizontal: 2 },
+  wordSelected:     { backgroundColor: c.selectedWord, borderRadius: 4, overflow: 'hidden', paddingHorizontal: 2 },
 
-  selectionBar:     { backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border, padding: 12 },
+  selectionBar:     { backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border, padding: 12 },
   selectionHeader:  { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  selectionText:    { flex: 1, fontSize: 13, color: COLORS.text, fontStyle: 'italic', marginBottom: 4 },
-  selectionHint:    { fontSize: 11, color: COLORS.textSecondary, marginBottom: 8 },
-  dictLine:         { fontSize: 13, color: COLORS.primary, marginBottom: 6, lineHeight: 19 },
+  selectionText:    { flex: 1, fontSize: 13, color: c.text, fontStyle: 'italic', marginBottom: 4 },
+  selectionHint:    { fontSize: 11, color: c.textSecondary, marginBottom: 8 },
+  dictLine:         { fontSize: 13, color: c.primary, marginBottom: 6, lineHeight: 19 },
   selectionActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  extendBtn:        { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: COLORS.primaryLight },
-  extendBtnText:    { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
-  saveAsLabel:      { fontSize: 12, color: COLORS.textSecondary, marginRight: 2 },
-  saveTypeBtn:      { backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  extendBtn:        { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: c.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: c.primaryLight },
+  extendBtnText:    { fontSize: 12, color: c.primary, fontWeight: '600' },
+  saveAsLabel:      { fontSize: 12, color: c.textSecondary, marginRight: 2 },
+  saveTypeBtn:      { backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   saveTypeBtnText:  { color: '#fff', fontSize: 13, fontWeight: '600' },
 
-  playerContainer:  { backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
+  playerContainer:  { backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
   playerBar:        { padding: 16 },
 
   // 24px-tall touch area around a 4px visual track — easy to tap precisely.
   seekTouchArea:    { height: 24, justifyContent: 'center', marginBottom: 2 },
-  seekTrack:        { height: 4, backgroundColor: COLORS.border, borderRadius: 2, overflow: 'hidden' },
-  seekFill:         { height: 4, backgroundColor: COLORS.primary, borderRadius: 2 },
-  seekThumb:        { width: 14, height: 14, borderRadius: 7, backgroundColor: COLORS.primary, position: 'absolute', top: 5, borderWidth: 2, borderColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
+  seekTrack:        { height: 4, backgroundColor: c.border, borderRadius: 2, overflow: 'hidden' },
+  seekFill:         { height: 4, backgroundColor: c.primary, borderRadius: 2 },
+  seekThumb:        { width: 14, height: 14, borderRadius: 7, backgroundColor: c.primary, position: 'absolute', top: 5, borderWidth: 2, borderColor: c.surface, elevation: 2, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 3, shadowOffset: { width: 0, height: 1 } },
 
   timeRow:          { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  timeText:         { fontSize: 12, color: COLORS.textSecondary, fontVariant: ['tabular-nums'] },
+  timeText:         { fontSize: 12, color: c.textSecondary, fontVariant: ['tabular-nums'] },
 
   controls:         { flexDirection: 'row', alignItems: 'center' },
   sideZoneLeft:     { flex: 1, alignItems: 'flex-start' },
   sideZoneRight:    { flex: 1, alignItems: 'flex-end' },
   // Rate and repeat share one chip shape so the two sides mirror each other.
-  sideChip:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, minWidth: 56, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: COLORS.primaryLight },
-  sideChipActive:   { borderWidth: 1.5, borderColor: COLORS.primary },
-  rateText:         { fontSize: 13, fontWeight: '700', color: COLORS.primary, fontVariant: ['tabular-nums'] },
-  repeatBadge:      { fontSize: 11, fontWeight: '700', color: COLORS.primary },
+  sideChip:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, minWidth: 56, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: c.primaryLight },
+  sideChipActive:   { borderWidth: 1.5, borderColor: c.primary },
+  rateText:         { fontSize: 13, fontWeight: '700', color: c.primary, fontVariant: ['tabular-nums'] },
+  repeatBadge:      { fontSize: 11, fontWeight: '700', color: c.primary },
 
   transport:        { flexDirection: 'row', alignItems: 'center', gap: 24 },
   skipBtn:          { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  skipLabel:        { position: 'absolute', bottom: 1, fontSize: 9, fontWeight: '700', color: COLORS.textSecondary },
-  playBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: COLORS.primary, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
-});
+  skipLabel:        { position: 'absolute', bottom: 1, fontSize: 9, fontWeight: '700', color: c.textSecondary },
+  playBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: c.primary, justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: c.primary, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  });
+}

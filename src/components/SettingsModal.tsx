@@ -28,6 +28,8 @@ import {
 import { DEFAULT_VOLCANO_VOICE, VOLCANO_VOICES } from '../services/volcano';
 import { useLibraryStore } from '../store/libraryStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
+import { useThemeControl } from '../theme/ThemeProvider';
+import type { ThemeMode } from '../services/settings';
 import { HubRow, type Tone } from './settings/ui';
 import EnginePage from './settings/EnginePage';
 import TtsPage from './settings/TtsPage';
@@ -57,6 +59,7 @@ export default function SettingsModal({
 }: { visible: boolean; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState<Page>('home');
+  const { mode: themeMode, setMode: setThemeMode } = useThemeControl();
 
   // Transcription
   const [engine, setEngine] = useState<TranscriptionEngine>('local');
@@ -338,6 +341,32 @@ export default function SettingsModal({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           {page === 'home' && (
             <>
+              {/* 外观:三种主题模式 */}
+              <View style={styles.appearanceRow}>
+                <View style={styles.reminderIcon}>
+                  <Ionicons name="contrast-outline" size={20} color={COLORS.primary} />
+                </View>
+                <Text style={styles.appearanceTitle}>外观</Text>
+                <View style={styles.appearanceChips}>
+                  {([
+                    { label: '跟随系统', value: 'system' },
+                    { label: '白天', value: 'light' },
+                    { label: '夜晚', value: 'dark' },
+                  ] as Array<{ label: string; value: ThemeMode }>).map(o => {
+                    const active = themeMode === o.value;
+                    return (
+                      <Pressable
+                        key={o.value}
+                        style={[styles.timeChip, active && styles.timeChipActive]}
+                        onPress={() => setThemeMode(o.value)}
+                      >
+                        <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{o.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
               <HubRow
                 icon="mic-outline"
                 title="转写引擎"
@@ -504,6 +533,10 @@ const styles = StyleSheet.create({
   modal:           { flex: 1, padding: 24, backgroundColor: COLORS.background },
   modalHeader:     { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
   modalTitle:      { fontSize: 20, fontWeight: '700', color: COLORS.text },
+
+  appearanceRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
+  appearanceTitle: { fontSize: 15, fontWeight: '600', color: COLORS.text },
+  appearanceChips: { flexDirection: 'row', gap: 8, flex: 1, justifyContent: 'flex-end' },
 
   reminderRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
   reminderIcon:    { width: 38, height: 38, borderRadius: 10, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },

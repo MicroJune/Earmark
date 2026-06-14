@@ -89,6 +89,18 @@ export async function setFileSortMode(mode: FileSortMode): Promise<void> {
   await Storage.setItem('settings_file_sort', mode);
 }
 
+// Appearance: follow the OS, or force light / dark.
+export type ThemeMode = 'system' | 'light' | 'dark';
+
+export async function getThemeMode(): Promise<ThemeMode> {
+  const v = await Storage.getItem('settings_theme_mode');
+  return v === 'light' || v === 'dark' ? v : 'system';
+}
+
+export async function setThemeMode(mode: ThemeMode): Promise<void> {
+  await Storage.setItem('settings_theme_mode', mode);
+}
+
 export async function getSuggestionDensity(): Promise<SuggestionDensity> {
   const v = await Storage.getItem(KEYS.suggestionDensity);
   return v === 'low' || v === 'high' ? v : 'medium';
