@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { type Level, type LogEntry, getLogEntries, clearLogEntries, clearLogFile, getLogFilePath, subscribeToLogs } from '../utils/logger';
+import { type Level, type LogEntry, getLogEntries, clearLogEntries, clearLogFile, getLogFilePath, subscribeToLogs, setLiveForward, isLiveForwardEnabled } from '../utils/logger';
 import { COLORS } from '../constants/colors';
 
 const LEVEL_COLOR: Record<Level, string> = {
@@ -19,12 +19,16 @@ const LOG_SERVER_URL = 'http://localhost:8765/logs';
 
 function LogRow({ item }: { item: LogEntry }) {
   const color = LEVEL_COLOR[item.level];
+  const ctx = item.context && Object.keys(item.context).length
+    ? Object.entries(item.context).map(([k, v]) => `${k}=${v}`).join(' ')
+    : null;
   return (
     <View style={styles.row}>
       <Text style={[styles.rowLevel, { color }]}>{item.level[0]}</Text>
       <View style={styles.rowBody}>
         <Text style={styles.rowMeta}>{item.time}  <Text style={{ color }}>[{item.tag}]</Text></Text>
         <Text style={styles.rowMsg}>{item.message}</Text>
+        {ctx ? <Text style={styles.rowCtx}>{ctx}</Text> : null}
         {item.detail ? <Text style={styles.rowDetail}>{item.detail}</Text> : null}
       </View>
     </View>
@@ -41,6 +45,7 @@ export default function LogViewerModal({ visible, onClose }: Props) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<Level | null>(null);
   const [sending, setSending] = useState(false);
+  const [live, setLive] = useState(isLiveForwardEnabled());
   const listRef = useRef<FlatList>(null);
   const translateY = useRef(new Animated.Value(0)).current;
 
@@ -143,6 +148,14 @@ export default function LogViewerModal({ visible, onClose }: Props) {
           <View style={styles.header}>
             <Text style={styles.title}>Logs  <Text style={styles.count}>{entries.length}</Text></Text>
             <View style={styles.headerActions}>
+              {/* Live stream: POST every new log line to the laptop server as it
+                  happens — survives a crash, unlike a one-shot send. */}
+              <Pressable
+                onPress={() => { const next = !live; setLiveForward(next); setLive(next); }}
+                style={styles.iconBtn}
+              >
+                <Ionicons name={live ? 'radio' : 'radio-outline'} size={20} color={live ? '#34D399' : '#475569'} />
+              </Pressable>
               <Pressable onPress={handleSendToLaptop} disabled={sending} style={styles.iconBtn}>
                 <Ionicons name="laptop-outline" size={20} color={sending ? '#475569' : '#22D3EE'} />
               </Pressable>
@@ -217,5 +230,6 @@ const styles = StyleSheet.create({
   rowBody:       { flex: 1 },
   rowMeta:       { fontSize: 10, color: '#475569', marginBottom: 1 },
   rowMsg:        { fontSize: 12, color: '#CBD5E1', fontFamily: 'monospace' },
+  rowCtx:        { fontSize: 10, color: '#5EEAD4', fontFamily: 'monospace', marginTop: 1 },
   rowDetail:     { fontSize: 11, color: '#64748B', fontFamily: 'monospace', marginTop: 2 },
 });

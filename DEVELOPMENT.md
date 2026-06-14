@@ -99,6 +99,49 @@ npx eas-cli build --profile development --platform android   # dev build APK
 Remember to bump `expo.version` and `expo.android.versionCode` in `app.json`
 before a release build that users will install over an existing one.
 
+## Logging & diagnostics
+
+The app has a self-contained logging system (`src/utils/logger.ts`) built to
+survive the failure modes that make field bugs hard to diagnose — especially
+hard crashes / ANRs and ROMs (e.g. vivo) that suppress `logcat`.
+
+**Using it**
+- `log.debug/info/warn/error(tag, message, extra?)` — `extra` may be an `Error`
+  (its stack is captured) or any object (JSON-serialised into the detail line).
+- `log.setContext({ screen, audioFileId, … })` / `log.clearContext()` — ambient
+  fields attached to every subsequent entry (shown in the viewer + log file).
+- `log.breadcrumb('…')` — a one-off marker; the latest is saved into the session
+  record so it shows up in the next launch's crash report.
+- `initLogger()` is called once at startup from `App.tsx` (before DB/audio init).
+
+**What it captures**
+- **Abnormal-exit detection.** Each run writes a session record
+  (`logger-session.json`). On the next launch the logger reports whether the
+  previous session ended abnormally: a JS crash (`crashed`), or a death while in
+  the **foreground** (`appState === 'active'` ⇒ likely ANR / native crash / OS
+  kill — exactly the lock-screen freeze). A background death is treated as
+  normal. This is the signal we previously had no way to see.
+- **Global JS error handler** — uncaught/fatal errors are logged (with stack)
+  and flagged in the session record before the app dies.
+- **Main-thread freeze watchdog** — a 2 s heartbeat; if the gap blows past
+  `FREEZE_WARN_MS` (5 s) it logs how long the JS thread was blocked. (This alone
+  would have surfaced the ~38 s unlock freeze.)
+- **Structured context** on every entry, plus lifecycle breadcrumbs (app →
+  active/background).
+
+**Getting the logs off the device**
+- **In-app Log Viewer** (Settings) — filter by level, share, clear.
+- **Live stream to laptop** — the 📻 toggle in the Log Viewer POSTs every new
+  line to `log-server.js` as it happens, so it survives a crash and bypasses
+  ROM logcat suppression. Run on the laptop:
+  ```bash
+  node log-server.js
+  adb reverse tcp:8765 tcp:8765   # Windows adb (USB device is Windows-visible)
+  ```
+- **Persisted file** — `app.log` in the app document dir (rotates to `app.log.1`
+  past 512 KB). Pull with adb or read it after a crash; survives the in-memory
+  buffer being lost.
+
 ## Notes for users in mainland China
 
 - Use the **on-device** transcription engine (no key, no network).
