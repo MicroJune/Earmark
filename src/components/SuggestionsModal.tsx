@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, Modal, Pressable, FlatList,
   ActivityIndicator, StyleSheet,
@@ -13,6 +13,7 @@ import { getSegmentsByAudioFile } from '../db/queries/segments';
 import { useLibraryStore } from '../store/libraryStore';
 import { seekTo } from '../services/audio';
 import { formatDuration } from '../utils/timeFormat';
+import ScrollIndicator, { type ScrollIndicatorHandle } from './ScrollIndicator';
 
 const DENSITY_OPTIONS: Array<{ value: SuggestionDensity; label: string }> = [
   { value: 'low', label: '低 · 2/分钟' },
@@ -70,6 +71,7 @@ export default function SuggestionsModal({
   audioFileId: number;
 }) {
   const insets = useSafeAreaInsets();
+  const scrollIndicatorRef = useRef<ScrollIndicatorHandle>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export default function SuggestionsModal({
         )}
 
         {!loading && !error && (
+          <View style={styles.listWrap}>
           <FlatList
             data={suggestions}
             keyExtractor={(s, i) => `${i}-${s.text}`}
@@ -226,6 +229,9 @@ export default function SuggestionsModal({
               />
             )}
             contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onScroll={e => scrollIndicatorRef.current?.onScroll(e)}
             ListFooterComponent={
               suggestions.length > 0 ? (
                 <View style={styles.footer}>
@@ -245,6 +251,8 @@ export default function SuggestionsModal({
               ) : null
             }
           />
+          <ScrollIndicator ref={scrollIndicatorRef} />
+          </View>
         )}
       </View>
     </Modal>
@@ -264,6 +272,7 @@ const styles = StyleSheet.create({
   loadingText:  { marginTop: 16, fontSize: 14, color: COLORS.textSecondary, textAlign: 'center' },
   errorText:    { marginTop: 16, fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', lineHeight: 21 },
 
+  listWrap:     { flex: 1 },
   list:         { padding: 16, paddingTop: 4 },
   card:         { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
   cardTop:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 },

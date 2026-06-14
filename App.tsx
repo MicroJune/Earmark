@@ -1,12 +1,13 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { getDb } from './src/db';
 import { recoverInterruptedTranscriptions } from './src/db/queries/audioFiles';
 import { setupAudioMode } from './src/services/audio';
+import { checkForUpdate, reloadApp } from './src/services/updates';
 import { AppNavigation } from './src/navigation';
 import { COLORS } from './src/constants/colors';
 
@@ -27,6 +28,28 @@ export default function App() {
       }
     })();
   }, []);
+
+  // OTA: on every cold start, quietly check for a newer JS bundle. If one
+  // downloads, offer an immediate restart instead of waiting for the silent
+  // default (which only applies on the *next* launch — the usual "I pushed an
+  // update but nothing changed" confusion). No-op in Expo Go / dev.
+  useEffect(() => {
+    if (!ready || error) return;
+    let cancelled = false;
+    void (async () => {
+      const result = await checkForUpdate();
+      if (cancelled || result.status !== 'downloaded') return;
+      Alert.alert(
+        '有新版本',
+        '已在后台下载完成,立即重启应用以使用最新版本?',
+        [
+          { text: '稍后', style: 'cancel' },
+          { text: '立即重启', onPress: () => { void reloadApp(); } },
+        ],
+      );
+    })();
+    return () => { cancelled = true; };
+  }, [ready, error]);
 
   if (!ready) {
     return (

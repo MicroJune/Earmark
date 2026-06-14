@@ -17,6 +17,7 @@ import {
 } from '../services/settings';
 import { isModelDownloaded } from '../services/transcription/models';
 import { formatDuration, formatRelativeDate } from '../utils/timeFormat';
+import { sortFiles } from '../utils/fileSort';
 import { deleteAudioFileAndItems, previewAudioFileDeletion } from '../services/fileDeletion';
 import { deleteOriginalFiles, isOriginalCleanupSupported } from '../services/originalCleanup';
 import SettingsModal from '../components/SettingsModal';
@@ -163,32 +164,6 @@ function AudioFileCard({
   );
 }
 
-// ─── Sorting helpers ──────────────────────────────────────────────────────────
-
-function sortFiles(
-  files: AudioFile[],
-  mode: FileSortMode,
-  sizes: Map<number, number>
-): AudioFile[] {
-  const arr = [...files];
-  switch (mode) {
-    case 'name':
-      return arr.sort((a, b) => a.title.localeCompare(b.title));
-    case 'size':
-      return arr.sort((a, b) => (sizes.get(b.id) ?? 0) - (sizes.get(a.id) ?? 0));
-    case 'manual':
-      return arr.sort((a, b) => {
-        // Manually positioned files first (by position); unplaced ones after, newest first
-        if (a.sortOrder === null && b.sortOrder === null) return b.dateAdded - a.dateAdded;
-        if (a.sortOrder === null) return 1;
-        if (b.sortOrder === null) return -1;
-        return a.sortOrder - b.sortOrder;
-      });
-    case 'date':
-    default:
-      return arr.sort((a, b) => b.dateAdded - a.dateAdded);
-  }
-}
 
 // ─── CategoryScreen ───────────────────────────────────────────────────────────
 

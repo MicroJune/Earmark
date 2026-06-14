@@ -151,10 +151,14 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
 
   updateMastery: async (id, mastery) => {
     await updateMastery(id, mastery);
-    set(state => {
-      const items = state.items.map(i => i.id === id ? { ...i, mastery } : i);
-      return { items, filteredItems: applyFilter(items, state.filter) };
-    });
+    // Update the item in place WITHOUT re-running the filter: if a mastery
+    // filter is active (e.g. "New"), re-filtering would immediately drop the
+    // card the user just re-tagged, making it vanish mid-review. Keep it where
+    // it is until the user next changes a filter or reloads.
+    set(state => ({
+      items: state.items.map(i => i.id === id ? { ...i, mastery } : i),
+      filteredItems: state.filteredItems.map(i => i.id === id ? { ...i, mastery } : i),
+    }));
   },
 
   editItemText: async (id, text, contextSentence) => {

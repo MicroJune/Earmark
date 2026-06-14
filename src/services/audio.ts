@@ -97,14 +97,23 @@ function handlePlaybackStatus(status: AudioStatus): void {
       void seekTo(0).then(() => _player?.play());
       return;
     }
+    if (mode === 'all') {
+      // Sequential: advancing to the next file is a navigation/loading concern,
+      // handled by the Content View via this hook (it unloads + persists).
+      store.setIsPlaying(false);
+      _onTrackEnd?.();
+      return;
+    }
+    // 'off' — stop and rewind to the start so the seek bar returns to 0 and the
+    // next tap on play restarts from the top (instead of replaying from the
+    // stuck end position).
     store.setIsPlaying(false);
+    store.setPosition(0);
+    void seekTo(0);
     if (_activeAudioFileId) {
       _lastPersistedPosition = 0;
       void updateAudioFilePosition(_activeAudioFileId, 0).catch(() => {});
     }
-    // 'all' (sequential) is handled by the ContentView via this hook, since
-    // advancing to the next file is a navigation/loading concern.
-    if (mode === 'all') _onTrackEnd?.();
   }
 }
 
