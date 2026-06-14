@@ -1,0 +1,21 @@
+# Normalize line endings. Git auto-detects text vs binary; `eol=lf` stores LF in
+# the repo AND checks out LF in the working tree, ending the CRLF/LF churn.
+* text=auto eol=lf
+
+# Binary assets — never apply text/EOL conversion.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.keystore binary
+*.jar   binary
+*.zip   binary
+*.mp3   binary
+*.wav   binary
+*.m4a   binary
