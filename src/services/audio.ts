@@ -24,6 +24,16 @@ let _activeAudioFileId: number | null = null;
 let _durationPersisted = false;
 let _lastPersistedPosition = 0;
 
+// TEMP DIAGNOSTIC (problem 1): detect bursts of playbackStatusUpdate callbacks.
+// Normal cadence is ~100ms (updateInterval). If on unlock we see many callbacks
+// arriving <60ms apart, the native layer is draining a backlog → confirms the
+// "catch-up flood" theory. Logged only when a burst ends, so it's quiet during
+// normal playback.
+let _lastStatusWall = 0;
+let _burstCount = 0;
+let _burstStartWall = 0;
+let _burstStartPos = 0;
+
 // How often (seconds of playback) the position is checkpointed to the DB.
 // Crash-safety only — the authoritative write happens in unloadAudio().
 const POSITION_CHECKPOINT_INTERVAL = 5;
@@ -77,6 +87,22 @@ function handlePlaybackStatus(status: AudioStatus): void {
 
   const positionSeconds = status.currentTime;
   const store = usePlaybackStore.getState();
+
+  // TEMP DIAGNOSTIC (problem 1): burst detector.
+  {
+    const nowWall = Date.now();
+    const gap = _lastStatusWall === 0 ? 9999 : nowWall - _lastStatusWall;
+    _lastStatusWall = nowWall;
+    if (gap < 60) {
+      if (_burstCount === 0) { _burstStartWall = nowWall; _burstStartPos = positionSeconds; }
+      _burstCount++;
+    } else {
+      if (_burstCount >= 3) {
+        log.warn('diag-p1', `status BURST: ${_burstCount} updates in ${nowWall - _burstStartWall}ms, pos ${_burstStartPos.toFixed(1)}s→${positionSeconds.toFixed(1)}s (Δ${(positionSeconds - _burstStartPos).toFixed(1)}s)`);
+      }
+      _burstCount = 0;
+    }
+  }
 
   persistDurationOnce(status);
   store.setPosition(positionSeconds);

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, memo, useMemo, useCallback } from 'react';
 import {
   View, Text, Pressable, Alert, ActivityIndicator,
-  StyleSheet, GestureResponderEvent,
+  StyleSheet, GestureResponderEvent, AppState,
 } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -370,6 +370,17 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     void getFileSortMode().then(m => { sortModeRef.current = m; });
   }, []);
 
+  // TEMP DIAGNOSTIC (problem 1): mark background/foreground transitions so the
+  // log shows the exact unlock moment, the gap jumped, and lets us correlate
+  // the resume with any status BURST + scrollToIndex storm that follows.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', next => {
+      const { activeWordIndex: wi, currentPosition: pos } = usePlaybackStore.getState();
+      log.warn('diag-p1', `AppState → ${next} @ pos=${pos.toFixed(1)}s activeWord=${wi} wall=${Date.now()}`);
+    });
+    return () => sub.remove();
+  }, []);
+
   // Sequential playback ('all' / 顺序循环): when the current file ends, advance
   // to the next ready file in the same category — in the SAME order the category
   // screen shows — and auto-play it. Wraps around at the end (it's a loop), so
@@ -433,11 +444,16 @@ export default function ContentViewScreen({ route, navigation }: Props) {
       s => activeWordIndex >= s.wordStartIndex && activeWordIndex <= s.wordEndIndex
     );
     if (segIndex === -1 || segIndex === lastActiveSegmentRef.current) return;
+    // TEMP DIAGNOSTIC (problem 1): record how far the active segment jumped and
+    // when. A storm of these right after an "AppState → active" line (each a
+    // big jump, animated) is the catch-up scroll thrashing FlashList.
+    const prevSeg = lastActiveSegmentRef.current;
     lastActiveSegmentRef.current = segIndex;
 
     const { first, last } = visibleRangeRef.current;
     if (first !== -1 && segIndex >= first && segIndex <= last) return; // already visible
 
+    log.warn('diag-p1', `autoScroll seg ${prevSeg}→${segIndex} (jump ${segIndex - prevSeg}) animated wall=${Date.now()}`);
     try {
       // Land the line ~30% from the top — comfortable to read and clear of
       // the top bar (viewPosition is the fraction of the viewport).

@@ -101,12 +101,16 @@ function FilterChip<T extends string>({
 // ─── Saved item card ──────────────────────────────────────────────────────────
 
 function SavedItemCard({
-  item, onPress, onDelete, onOpenMastery,
+  item, onPress, onDelete, onOpenMastery, onLongPress, selectionMode, selected, onToggleSelect,
 }: {
   item: SavedItem;
   onPress: () => void;
   onDelete: () => void;
   onOpenMastery: (anchor: Anchor) => void;
+  onLongPress: () => void;
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const badgeRef = useRef<View>(null);
   const openMenu = () => {
@@ -116,16 +120,30 @@ function SavedItemCard({
   };
 
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable
+      style={[styles.card, selected && styles.cardSelected]}
+      onPress={selectionMode ? onToggleSelect : onPress}
+      onLongPress={onLongPress}
+    >
       <View style={styles.cardTop}>
+        {selectionMode && (
+          <Ionicons
+            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={20}
+            color={selected ? COLORS.primary : COLORS.textSecondary}
+            style={styles.selectDot}
+          />
+        )}
         <Text style={styles.cardText}>{item.text}</Text>
         <View style={styles.cardTopIcons}>
           {item.enrichment && (
             <Ionicons name="sparkles" size={13} color={COLORS.primary} />
           )}
-          <Pressable onPress={onDelete} hitSlop={8}>
-            <Ionicons name="trash-outline" size={16} color={COLORS.textSecondary} />
-          </Pressable>
+          {!selectionMode && (
+            <Pressable onPress={onDelete} hitSlop={8}>
+              <Ionicons name="trash-outline" size={16} color={COLORS.textSecondary} />
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -141,6 +159,7 @@ function SavedItemCard({
           ref={badgeRef}
           style={[styles.masteryBadge, { backgroundColor: MASTERY_COLOR[item.mastery] + '22' }]}
           onPress={openMenu}
+          disabled={selectionMode}
           hitSlop={6}
         >
           <Text style={[styles.masteryText, { color: MASTERY_COLOR[item.mastery] }]}>
@@ -153,16 +172,47 @@ function SavedItemCard({
   );
 }
 
+// ─── Batch mastery picker (selection mode) ────────────────────────────────────
+
+function BatchMasteryModal({
+  count, onSelect, onClose,
+}: {
+  count: number;
+  onSelect: (m: MasteryLevel) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.batchBackdrop} onPress={onClose}>
+        <View style={styles.batchCard}>
+          <Text style={styles.batchTitle}>将选中的 {count} 项标记为</Text>
+          {MASTERY_OPTIONS.map(o => (
+            <Pressable key={o.value} style={styles.batchRow} onPress={() => onSelect(o.value)}>
+              <View style={[styles.menuDot, { backgroundColor: MASTERY_COLOR[o.value] }]} />
+              <Text style={styles.menuItemText}>{o.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 // ─── LibraryScreen ────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const {
-    filteredItems, filter, isLoading,
-    loadItems, removeItem, updateMastery, setFilter, resetFilter,
+    items, filteredItems, filter, isLoading,
+    loadItems, removeItem, removeItems, updateMastery, updateMasteryMany, setFilter, resetFilter,
   } = useLibraryStore();
   const [selectedItem, setSelectedItem] = useState<SavedItem | null>(null);
   const [masteryMenu, setMasteryMenu] = useState<{ item: SavedItem; anchor: Anchor } | null>(null);
+
+  // Multi-select (batch delete / batch tag). Entered via long-press on a card.
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [batchMasteryOpen, setBatchMasteryOpen] = useState(false);
 
   useEffect(() => { loadItems(); }, []);
 
@@ -171,6 +221,40 @@ export default function LibraryScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => removeItem(item) },
     ]);
+  };
+
+  // ── Selection helpers ──
+  const enterSelection = (item: SavedItem) => {
+    setSelectionMode(true);
+    setSelectedIds(new Set([item.id]));
+  };
+  const exitSelection = () => { setSelectionMode(false); setSelectedIds(new Set()); };
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allSelected = filteredItems.length > 0 && selectedIds.size >= filteredItems.length;
+  const toggleSelectAll = () =>
+    setSelectedIds(allSelected ? new Set() : new Set(filteredItems.map(i => i.id)));
+
+  const handleBatchDelete = () => {
+    if (selectedIds.size === 0) return;
+    Alert.alert('批量删除', `从词库中删除选中的 ${selectedIds.size} 项?`, [
+      { text: '取消', style: 'cancel' },
+      { text: '删除', style: 'destructive', onPress: async () => {
+          await removeItems(items.filter(i => selectedIds.has(i.id)));
+          exitSelection();
+        } },
+    ]);
+  };
+
+  const handleBatchMastery = async (m: MasteryLevel) => {
+    await updateMasteryMany(Array.from(selectedIds), m);
+    setBatchMasteryOpen(false);
+    exitSelection();
   };
 
   return (
@@ -217,29 +301,42 @@ export default function LibraryScreen() {
         ))}
       </View>
 
-      {/* Results count + sort */}
-      <View style={styles.countRow}>
-        <Text style={styles.countText}>{filteredItems.length} items</Text>
-        <View style={styles.countActions}>
-          {(filter.type !== 'all' || filter.mastery !== 'all' || filter.searchQuery) && (
-            <Pressable onPress={resetFilter}>
-              <Text style={styles.clearFilter}>Clear filters</Text>
+      {/* Results count + sort — or selection controls when multi-selecting */}
+      {!selectionMode ? (
+        <View style={styles.countRow}>
+          <Text style={styles.countText}>{filteredItems.length} items</Text>
+          <View style={styles.countActions}>
+            {(filter.type !== 'all' || filter.mastery !== 'all' || filter.searchQuery) && (
+              <Pressable onPress={resetFilter}>
+                <Text style={styles.clearFilter}>Clear filters</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={styles.sortBtn}
+              onPress={() => {
+                const idx = SORT_CYCLE.findIndex(s => s.value === filter.sortBy);
+                setFilter({ sortBy: SORT_CYCLE[(idx + 1) % SORT_CYCLE.length].value });
+              }}
+            >
+              <Ionicons name="swap-vertical" size={12} color={COLORS.primary} />
+              <Text style={styles.sortText}>
+                {SORT_CYCLE.find(s => s.value === filter.sortBy)?.label ?? 'Newest'}
+              </Text>
             </Pressable>
-          )}
-          <Pressable
-            style={styles.sortBtn}
-            onPress={() => {
-              const idx = SORT_CYCLE.findIndex(s => s.value === filter.sortBy);
-              setFilter({ sortBy: SORT_CYCLE[(idx + 1) % SORT_CYCLE.length].value });
-            }}
-          >
-            <Ionicons name="swap-vertical" size={12} color={COLORS.primary} />
-            <Text style={styles.sortText}>
-              {SORT_CYCLE.find(s => s.value === filter.sortBy)?.label ?? 'Newest'}
-            </Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.countRow}>
+          <Pressable onPress={exitSelection} hitSlop={6}>
+            <Text style={styles.clearFilter}>取消</Text>
+          </Pressable>
+          <Text style={styles.countText}>已选 {selectedIds.size} 项</Text>
+          <Pressable onPress={toggleSelectAll} style={styles.sortBtn}>
+            <Ionicons name={allSelected ? 'remove-circle-outline' : 'checkmark-done'} size={12} color={COLORS.primary} />
+            <Text style={styles.sortText}>{allSelected ? '取消全选' : '全选'}</Text>
           </Pressable>
         </View>
-      </View>
+      )}
 
       {/* List */}
       <FlatList
@@ -251,9 +348,13 @@ export default function LibraryScreen() {
             onPress={() => setSelectedItem(item)}
             onDelete={() => handleDelete(item)}
             onOpenMastery={anchor => setMasteryMenu({ item, anchor })}
+            onLongPress={() => { if (!selectionMode) enterSelection(item); }}
+            selectionMode={selectionMode}
+            selected={selectedIds.has(item.id)}
+            onToggleSelect={() => toggleSelect(item.id)}
           />
         )}
-        contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: (selectionMode ? 80 : 0) + insets.bottom + 16 }}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="bookmark-outline" size={56} color={COLORS.border} />
@@ -275,6 +376,34 @@ export default function LibraryScreen() {
           current={masteryMenu.item.mastery}
           onSelect={m => { updateMastery(masteryMenu.item.id, m); setMasteryMenu(null); }}
           onClose={() => setMasteryMenu(null)}
+        />
+      )}
+
+      {/* Batch action bar (selection mode) */}
+      {selectionMode && (
+        <View style={[styles.batchBar, { paddingBottom: insets.bottom + 8 }]}>
+          <Pressable
+            style={[styles.batchBtn, selectedIds.size === 0 && styles.batchBtnDisabled]}
+            onPress={() => selectedIds.size > 0 && setBatchMasteryOpen(true)}
+          >
+            <Ionicons name="pricetag-outline" size={18} color={COLORS.primary} />
+            <Text style={styles.batchBtnText}>标记</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.batchBtn, styles.batchDeleteBtn, selectedIds.size === 0 && styles.batchBtnDisabled]}
+            onPress={handleBatchDelete}
+          >
+            <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+            <Text style={[styles.batchBtnText, { color: COLORS.error }]}>删除 ({selectedIds.size})</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {batchMasteryOpen && (
+        <BatchMasteryModal
+          count={selectedIds.size}
+          onSelect={handleBatchMastery}
+          onClose={() => setBatchMasteryOpen(false)}
         />
       )}
     </View>
@@ -304,6 +433,8 @@ const styles = StyleSheet.create({
   sortText:        { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
 
   card:            { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
+  cardSelected:    { borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  selectDot:       { marginRight: 8, marginTop: 1 },
   cardTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
   cardTopIcons:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
   cardText:        { fontSize: 16, fontWeight: '700', color: COLORS.text, flex: 1, marginRight: 8 },
@@ -321,6 +452,17 @@ const styles = StyleSheet.create({
   menuDot:         { width: 9, height: 9, borderRadius: 5 },
   menuItemText:    { fontSize: 14, color: COLORS.text, fontWeight: '500' },
   menuCheck:       { marginLeft: 'auto' },
+
+  batchBar:        { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 10, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
+  batchBtn:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  batchDeleteBtn:  { borderColor: COLORS.error, backgroundColor: COLORS.error + '14' },
+  batchBtnDisabled:{ opacity: 0.4 },
+  batchBtnText:    { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+
+  batchBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 40 },
+  batchCard:       { backgroundColor: COLORS.surface, borderRadius: 14, paddingVertical: 8 },
+  batchTitle:      { fontSize: 14, fontWeight: '700', color: COLORS.text, paddingHorizontal: 16, paddingVertical: 12 },
+  batchRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, height: 48 },
 
   empty:           { alignItems: 'center', paddingTop: 60 },
   emptyTitle:      { fontSize: 18, fontWeight: '700', color: COLORS.text, marginTop: 16 },

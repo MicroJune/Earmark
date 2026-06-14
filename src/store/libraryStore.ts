@@ -80,7 +80,9 @@ interface LibraryStore {
   loadItems: () => Promise<void>;
   addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount'>) => Promise<number>;
   removeItem: (item: SavedItem) => Promise<void>;
+  removeItems: (items: SavedItem[]) => Promise<void>;
   updateMastery: (id: number, mastery: MasteryLevel) => Promise<void>;
+  updateMasteryMany: (ids: number[], mastery: MasteryLevel) => Promise<void>;
   editItemText: (id: number, text: string, contextSentence: string) => Promise<void>;
   setNote: (id: number, note: string) => Promise<void>;
   scheduleReview: (id: number, nextReview: number | null) => Promise<void>;
@@ -149,6 +151,27 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     });
   },
 
+  removeItems: async (itemsToRemove) => {
+    if (itemsToRemove.length === 0) return;
+    const affectedFiles = new Set<number>();
+    for (const item of itemsToRemove) {
+      await deleteSavedItem(item.id);
+      if (item.clipUri) deleteClipFile(item.clipUri);
+      if (item.audioFileId !== null) {
+        await decrementPhraseCount(item.audioFileId);
+        affectedFiles.add(item.audioFileId);
+      }
+    }
+    const removedIds = new Set(itemsToRemove.map(i => i.id));
+    set(state => {
+      const items = state.items.filter(i => !removedIds.has(i.id));
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+    for (const fileId of affectedFiles) {
+      await useAudioFilesStore.getState().refreshAudioFile(fileId);
+    }
+  },
+
   updateMastery: async (id, mastery) => {
     await updateMastery(id, mastery);
     // Update the item in place WITHOUT re-running the filter: if a mastery
@@ -158,6 +181,18 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     set(state => ({
       items: state.items.map(i => i.id === id ? { ...i, mastery } : i),
       filteredItems: state.filteredItems.map(i => i.id === id ? { ...i, mastery } : i),
+    }));
+  },
+
+  updateMasteryMany: async (ids, mastery) => {
+    if (ids.length === 0) return;
+    for (const id of ids) await updateMastery(id, mastery);
+    // Update in place without re-filtering — same reasoning as updateMastery:
+    // a re-tagged card shouldn't vanish from under an active mastery filter.
+    const idSet = new Set(ids);
+    set(state => ({
+      items: state.items.map(i => idSet.has(i.id) ? { ...i, mastery } : i),
+      filteredItems: state.filteredItems.map(i => idSet.has(i.id) ? { ...i, mastery } : i),
     }));
   },
 

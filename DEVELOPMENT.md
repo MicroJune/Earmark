@@ -88,16 +88,76 @@ bash scripts/usb-expo-go.sh
 
 ---
 
-## Build & distribute
+## Build & distribute (EAS)
+
+All commands run in the **WSL terminal**. EAS CLI isn't installed globally, so
+either prefix with `npx eas-cli@latest …` or install once with
+`npm install -g eas-cli`. Sign in with `eas login` (`eas whoami` to verify).
+
+### Two mechanisms — don't mix them up
+
+| | `eas build` | `eas update` |
+|---|---|---|
+| Produces | a fresh binary (APK / AAB) | an OTA bundle (JS + assets) |
+| Use when | native code / native deps / `app.json` native config changed, **or** the version was bumped | only JS / TS / image assets changed |
+| Reaches users | reinstall / store update | already-installed apps fetch it on next launch |
+| Speed | minutes (cloud build) | seconds |
+
+> ⚠️ This app has **native modules** (whisper.rn, react-native-audio-api), so it
+> cannot run in Expo Go — you must `eas build` a dev/preview binary first, and OTA
+> updates can only carry pure-JS changes.
+>
+> ⚠️ `runtimeVersion.policy = appVersion`: an OTA update only reaches installed
+> builds whose app version matches exactly. Once you bump `expo.version`
+> (e.g. 1.1.0 → 1.2.0) the old builds won't receive updates targeting 1.2.0 —
+> bumping the version **requires a new `eas build`**.
+
+### Profiles (see `eas.json`)
+
+| Profile | channel | Purpose | Android artifact |
+|---|---|---|---|
+| `development` | development | dev-client debug build, used with `expo start` | APK, internal |
+| `preview` | preview | internal testing (install directly) | APK, internal |
+| `production` | production | release / store (`autoIncrement` bumps versionCode) | AAB |
+
+### Build (binary)
 
 ```bash
-npx eas-cli login
-npx eas-cli build --profile development --platform android   # dev build APK
-# when done: adb install -r <downloaded.apk>   (install with the Windows adb)
+eas build --profile development --platform android   # dev-client APK
+eas build --profile preview     --platform android   # installable test APK
+eas build --profile production   --platform android   # release AAB (versionCode auto +1)
+# when done with an APK: adb install -r <downloaded.apk>   (install with the Windows adb)
 ```
 
-Remember to bump `expo.version` and `expo.android.versionCode` in `app.json`
-before a release build that users will install over an existing one.
+History: `eas build:list`.
+
+### Update (OTA — JS/assets only)
+
+Pushes current JS to a channel; matching installed apps update on next launch:
+
+```bash
+eas update --channel preview     -m "fix suggest-undo + library batch ops"
+eas update --channel production   -m "..."     # after preview looks good
+```
+
+History: `eas update:list`. If a change touches native deps/config, **build first**
+— OTA can't carry native changes.
+
+### Releasing a new version
+
+1. Bump `expo.version` (and `expo.android.versionCode`) in `app.json`.
+2. `eas build --profile production --platform android`.
+3. Distribute / upload the new AAB.
+4. Later JS-only fixes for that version go out via `eas update --channel production`.
+
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `eas: command not found` | CLI not installed — use `npx eas-cli@latest …` or `npm i -g eas-cli` |
+| update pushed but users don't get it | app version mismatch (`runtimeVersion=appVersion`), or it was a native change needing a rebuild |
+| build fails on credentials | run `eas credentials` to configure signing (first run can auto-generate) |
+| want to watch progress | expo.dev project page, or `eas build:list` / `eas update:list` |
 
 ## Notes for users in mainland China
 

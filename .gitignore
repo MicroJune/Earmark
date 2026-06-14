@@ -45,5 +45,8 @@ yarn-error.*
 
 # Metro debug log (dev tooling)
 metro-debug.log
+
+# Claude Code local memory
+memory/
 expo-console.log
 *-console.log
