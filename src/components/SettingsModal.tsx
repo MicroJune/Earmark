@@ -33,12 +33,13 @@ import EnginePage from './settings/EnginePage';
 import TtsPage from './settings/TtsPage';
 import AiPage from './settings/AiPage';
 import DataPage from './settings/DataPage';
+import UpdatesPage from './settings/UpdatesPage';
 import LogViewerModal from './LogViewerModal';
 
 // Constant for the app's lifetime — native modules can't appear at runtime.
 const LOCAL_SUPPORTED = isLocalEngineSupported();
 
-type Page = 'home' | 'engine' | 'tts' | 'ai' | 'data';
+type Page = 'home' | 'engine' | 'tts' | 'ai' | 'data' | 'updates';
 
 const PAGE_TITLES: Record<Page, string> = {
   home: '设置',
@@ -46,6 +47,7 @@ const PAGE_TITLES: Record<Page, string> = {
   tts: '发音朗读',
   ai: 'AI 学习笔记',
   data: '数据与存储',
+  updates: '应用更新',
 };
 
 // ─── SettingsModal — hub with sub-pages ───────────────────────────────────────
@@ -409,6 +411,14 @@ export default function SettingsModal({
               />
 
               <HubRow
+                icon="cloud-download-outline"
+                title="应用更新"
+                status="查看版本 · 检查热更新"
+                tone="muted"
+                onPress={() => setPage('updates')}
+              />
+
+              <HubRow
                 icon="terminal-outline"
                 title="运行日志"
                 status="排查问题时使用 · 可分享给开发者"
@@ -478,6 +488,8 @@ export default function SettingsModal({
               onImport={handleImport}
             />
           )}
+
+          {page === 'updates' && <UpdatesPage />}
         </ScrollView>
 
         <LogViewerModal visible={logsVisible} onClose={() => setLogsVisible(false)} />

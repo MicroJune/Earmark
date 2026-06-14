@@ -17,9 +17,13 @@ import {
   seekToWord as audioSeekToWord, setPlaybackRate, skip, setOnTrackEnd,
 } from '../services/audio';
 import { formatPosition, formatDuration } from '../utils/timeFormat';
+import { sortFiles } from '../utils/fileSort';
+import { getFileSortMode, type FileSortMode } from '../services/settings';
+import { getAudioFileSize } from '../services/filePicker';
 import { lookupWord } from '../services/dictionary';
 import { log } from '../utils/logger';
 import SuggestionsModal from '../components/SuggestionsModal';
+import ScrollIndicator, { type ScrollIndicatorHandle } from '../components/ScrollIndicator';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ContentView'>;
 
@@ -145,7 +149,7 @@ function SeekBar({ position, duration }: { position: number; duration: number })
 
 // ─── Audio player bar ─────────────────────────────────────────────────────────
 
-function AudioPlayerBar({ audioFileId }: { audioFileId: number }) {
+function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?: () => void }) {
   const isPlaying      = usePlaybackStore(s => s.isPlaying);
   const currentPosition = usePlaybackStore(s => s.currentPosition);
   const playbackRate   = usePlaybackStore(s => s.playbackRate);
@@ -190,7 +194,10 @@ function AudioPlayerBar({ audioFileId }: { audioFileId: number }) {
             <Ionicons name="play-back" size={20} color={COLORS.text} />
             <Text style={styles.skipLabel}>10</Text>
           </Pressable>
-          <Pressable style={styles.playBtn} onPress={() => isPlaying ? pause() : play()}>
+          <Pressable
+            style={styles.playBtn}
+            onPress={() => { if (isPlaying) { pause(); } else { play(); onPlay?.(); } }}
+          >
             <Ionicons
               name={isPlaying ? 'pause' : 'play'}
               size={30}
@@ -351,23 +358,45 @@ export default function ContentViewScreen({ route, navigation }: Props) {
   const audioFiles     = useAudioFilesStore(s => s.audioFiles);
 
   const flashListRef = useRef<FlashListRef<SegmentItem>>(null);
+  const scrollIndicatorRef = useRef<ScrollIndicatorHandle>(null);
   const lastActiveSegmentRef = useRef(-1);
   const autoPlayRef = useRef(false); // set when advancing to the next file in 'all' mode
+  const sortModeRef = useRef<FileSortMode>('date');
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
 
-  // Sequential playback ('all'): when the current file ends, advance to the
-  // next ready file in the same category and auto-play it.
+  // Keep the playlist order in sync with however the category screen is sorted,
+  // so sequential playback advances in the order the user actually sees.
+  useEffect(() => {
+    void getFileSortMode().then(m => { sortModeRef.current = m; });
+  }, []);
+
+  // Sequential playback ('all' / 顺序循环): when the current file ends, advance
+  // to the next ready file in the same category — in the SAME order the category
+  // screen shows — and auto-play it. Wraps around at the end (it's a loop), so
+  // playback never gets stuck on the first or last file.
   useEffect(() => {
     setOnTrackEnd(() => {
       if (usePlaybackStore.getState().repeatMode !== 'all') return;
       const cat = audioFile?.categoryId ?? null;
       const inCat = audioFiles.filter(f => f.categoryId === cat && f.status === 'ready');
-      const idx = inCat.findIndex(f => f.id === audioFileId);
-      const next = idx >= 0 ? inCat[idx + 1] : undefined;
-      if (next) {
-        autoPlayRef.current = true;
-        navigation.setParams({ audioFileId: next.id });
+      if (inCat.length === 0) return;
+      const sizes = new Map<number, number>();
+      if (sortModeRef.current === 'size') {
+        for (const f of inCat) {
+          try { sizes.set(f.id, f.uri ? getAudioFileSize(f.uri) : 0); } catch { sizes.set(f.id, 0); }
+        }
       }
+      const ordered = sortFiles(inCat, sortModeRef.current, sizes);
+      const idx = ordered.findIndex(f => f.id === audioFileId);
+      if (idx < 0) return;
+      const next = ordered[(idx + 1) % ordered.length];
+      if (next.id === audioFileId) {
+        // Only one file in the loop — just restart it.
+        void seekTo(0).then(() => play());
+        return;
+      }
+      autoPlayRef.current = true;
+      navigation.setParams({ audioFileId: next.id });
     });
     return () => setOnTrackEnd(null);
   }, [audioFileId, audioFile?.categoryId, audioFiles, navigation]);
@@ -419,6 +448,22 @@ export default function ContentViewScreen({ route, navigation }: Props) {
       });
     } catch {}
   }, [activeWordIndex, transcript]);
+
+  // Pressing play after manually scrolling away should bring the currently
+  // playing line back into view — unconditionally (unlike the passive
+  // auto-scroll above, which skips when nothing changed). Reads the store
+  // directly to avoid a stale closure.
+  const recenterActiveSegment = useCallback(() => {
+    const { transcript: t, activeWordIndex: wi } = usePlaybackStore.getState();
+    if (!t || wi < 0) return;
+    const segIndex = t.segments.findIndex(
+      s => wi >= s.wordStartIndex && wi <= s.wordEndIndex
+    );
+    if (segIndex < 0) return;
+    try {
+      flashListRef.current?.scrollToIndex({ index: segIndex, animated: true, viewPosition: 0.3 });
+    } catch {}
+  }, []);
 
   // Mount: load transcript + audio
   useEffect(() => {
@@ -500,7 +545,11 @@ export default function ContentViewScreen({ route, navigation }: Props) {
           contentContainerStyle={styles.transcriptContent}
           onViewableItemsChanged={handleViewableItemsChanged}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+          showsVerticalScrollIndicator={false}
+          scrollEventThrottle={16}
+          onScroll={e => scrollIndicatorRef.current?.onScroll(e)}
         />
+        <ScrollIndicator ref={scrollIndicatorRef} />
       </View>
 
       {/* Selection bar (above player when words are selected) */}
@@ -508,7 +557,7 @@ export default function ContentViewScreen({ route, navigation }: Props) {
 
       {/* Audio player */}
       <View style={[styles.playerContainer, { paddingBottom: insets.bottom }]}>
-        <AudioPlayerBar audioFileId={audioFileId} />
+        <AudioPlayerBar audioFileId={audioFileId} onPlay={recenterActiveSegment} />
       </View>
 
       <SuggestionsModal

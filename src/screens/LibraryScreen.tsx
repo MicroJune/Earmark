@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, TextInput,
-  StyleSheet, Alert,
+  StyleSheet, Alert, Modal, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +33,51 @@ const MASTERY_COLOR: Record<MasteryLevel, string> = {
   mastered: COLORS.success,
 };
 
+const MASTERY_OPTIONS: Array<{ value: MasteryLevel; label: string }> = [
+  { value: 'new',      label: 'New'      },
+  { value: 'learning', label: 'Learning' },
+  { value: 'mastered', label: 'Mastered' },
+];
+
+type Anchor = { x: number; y: number; width: number; height: number };
+
+// ─── Mastery dropdown ─────────────────────────────────────────────────────────
+// Small popover anchored under (or above) the tapped mastery badge. Replaces the
+// old tap-to-cycle, which was easy to overshoot and gave no choice of target.
+
+function MasteryMenu({
+  anchor, current, onSelect, onClose,
+}: {
+  anchor: Anchor;
+  current: MasteryLevel;
+  onSelect: (m: MasteryLevel) => void;
+  onClose: () => void;
+}) {
+  const { height: screenH } = useWindowDimensions();
+  const MENU_W = 150;
+  const MENU_H = MASTERY_OPTIONS.length * 44 + 8;
+  const openUp = anchor.y + anchor.height + MENU_H > screenH - 24;
+  const top = openUp ? anchor.y - MENU_H - 4 : anchor.y + anchor.height + 4;
+  const left = Math.max(8, anchor.x + anchor.width - MENU_W);
+
+  return (
+    <Modal transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={[styles.menu, { top, left, width: MENU_W }]}>
+        {MASTERY_OPTIONS.map(o => (
+          <Pressable key={o.value} style={styles.menuItem} onPress={() => onSelect(o.value)}>
+            <View style={[styles.menuDot, { backgroundColor: MASTERY_COLOR[o.value] }]} />
+            <Text style={styles.menuItemText}>{o.label}</Text>
+            {current === o.value && (
+              <Ionicons name="checkmark" size={16} color={COLORS.primary} style={styles.menuCheck} />
+            )}
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
+  );
+}
+
 const SORT_CYCLE: Array<{ value: LibrarySort; label: string }> = [
   { value: 'newest',  label: 'Newest'   },
   { value: 'oldest',  label: 'Oldest'   },
@@ -56,17 +101,18 @@ function FilterChip<T extends string>({
 // ─── Saved item card ──────────────────────────────────────────────────────────
 
 function SavedItemCard({
-  item, onPress, onDelete, onMasteryChange,
+  item, onPress, onDelete, onOpenMastery,
 }: {
   item: SavedItem;
   onPress: () => void;
   onDelete: () => void;
-  onMasteryChange: (mastery: MasteryLevel) => void;
+  onOpenMastery: (anchor: Anchor) => void;
 }) {
-  const MASTERY_CYCLE: MasteryLevel[] = ['new', 'learning', 'mastered'];
-  const cycleNextMastery = () => {
-    const next = MASTERY_CYCLE[(MASTERY_CYCLE.indexOf(item.mastery) + 1) % MASTERY_CYCLE.length];
-    onMasteryChange(next);
+  const badgeRef = useRef<View>(null);
+  const openMenu = () => {
+    badgeRef.current?.measureInWindow((x, y, width, height) =>
+      onOpenMastery({ x, y, width, height })
+    );
   };
 
   return (
@@ -92,12 +138,15 @@ function SavedItemCard({
         <Text style={styles.cardDate}>{formatRelativeDate(item.dateAdded)}</Text>
         <Text style={styles.nextReview}>{formatNextReview(item.nextReview)}</Text>
         <Pressable
+          ref={badgeRef}
           style={[styles.masteryBadge, { backgroundColor: MASTERY_COLOR[item.mastery] + '22' }]}
-          onPress={cycleNextMastery}
+          onPress={openMenu}
+          hitSlop={6}
         >
           <Text style={[styles.masteryText, { color: MASTERY_COLOR[item.mastery] }]}>
             {item.mastery}
           </Text>
+          <Ionicons name="chevron-down" size={12} color={MASTERY_COLOR[item.mastery]} />
         </Pressable>
       </View>
     </Pressable>
@@ -113,6 +162,7 @@ export default function LibraryScreen() {
     loadItems, removeItem, updateMastery, setFilter, resetFilter,
   } = useLibraryStore();
   const [selectedItem, setSelectedItem] = useState<SavedItem | null>(null);
+  const [masteryMenu, setMasteryMenu] = useState<{ item: SavedItem; anchor: Anchor } | null>(null);
 
   useEffect(() => { loadItems(); }, []);
 
@@ -200,7 +250,7 @@ export default function LibraryScreen() {
             item={item}
             onPress={() => setSelectedItem(item)}
             onDelete={() => handleDelete(item)}
-            onMasteryChange={m => updateMastery(item.id, m)}
+            onOpenMastery={anchor => setMasteryMenu({ item, anchor })}
           />
         )}
         contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 16 }}
@@ -217,6 +267,15 @@ export default function LibraryScreen() {
 
       {selectedItem && (
         <ItemDetailModal item={selectedItem} onClose={() => setSelectedItem(null)} />
+      )}
+
+      {masteryMenu && (
+        <MasteryMenu
+          anchor={masteryMenu.anchor}
+          current={masteryMenu.item.mastery}
+          onSelect={m => { updateMastery(masteryMenu.item.id, m); setMasteryMenu(null); }}
+          onClose={() => setMasteryMenu(null)}
+        />
       )}
     </View>
   );
@@ -254,8 +313,14 @@ const styles = StyleSheet.create({
   typeBadgeText:   { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
   cardDate:        { fontSize: 11, color: COLORS.textSecondary },
   nextReview:      { fontSize: 11, color: COLORS.textSecondary, flex: 1 },
-  masteryBadge:    { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  masteryBadge:    { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   masteryText:     { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
+
+  menu:            { position: 'absolute', backgroundColor: COLORS.surface, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  menuItem:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 44 },
+  menuDot:         { width: 9, height: 9, borderRadius: 5 },
+  menuItemText:    { fontSize: 14, color: COLORS.text, fontWeight: '500' },
+  menuCheck:       { marginLeft: 'auto' },
 
   empty:           { alignItems: 'center', paddingTop: 60 },
   emptyTitle:      { fontSize: 18, fontWeight: '700', color: COLORS.text, marginTop: 16 },
