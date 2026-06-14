@@ -127,6 +127,10 @@ User reviews saved items via flashcard/quiz mode
 - Daily streak + reviewed-today stats via review_log
 - AI phrase suggestions modal (豆包方舟 or DeepSeek, optional, cached per file; services/ai.ts + services/suggestions.ts)
 
+## Deployment
+
+EAS Build/Update workflow (development / preview / production profiles, OTA updates, runtimeVersion=appVersion caveats) is documented in `deployment.md`.
+
 ## Next Steps
 
 1. Run a development build for the offline engine: `npx expo prebuild --platform android` then `npx expo run:android` (see OFFLINE_SETUP.md)

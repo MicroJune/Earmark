@@ -110,6 +110,9 @@ See **[OFFLINE_SETUP.md](OFFLINE_SETUP.md)** for the offline engine in detail an
 **[DEVELOPMENT.md](DEVELOPMENT.md)** for local dev notes (incl. running over USB
 from WSL).
 
+To ship builds and OTA updates (EAS Build/Update — `development` / `preview` /
+`production` profiles), see **[deployment.md](deployment.md)**.
+
 ### Optional API keys
 
 All transcription (on-device) and the dictionary work with **no keys at all**.
