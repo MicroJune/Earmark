@@ -370,13 +370,15 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     void getFileSortMode().then(m => { sortModeRef.current = m; });
   }, []);
 
-  // TEMP DIAGNOSTIC (problem 1): mark background/foreground transitions so the
-  // log shows the exact unlock moment, the gap jumped, and lets us correlate
-  // the resume with any status BURST + scrollToIndex storm that follows.
+  // On return to the foreground, recompute the highlight from where playback
+  // actually reached while the screen was locked (it was frozen there to avoid
+  // background churn). The auto-scroll effect then snaps to it (big jump → no
+  // animation) — this keeps unlock instant instead of freezing.
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
-      const { activeWordIndex: wi, currentPosition: pos } = usePlaybackStore.getState();
-      log.warn('diag-p1', `AppState → ${next} @ pos=${pos.toFixed(1)}s activeWord=${wi} wall=${Date.now()}`);
+      if (next === 'active') {
+        usePlaybackStore.getState().setPosition(usePlaybackStore.getState().currentPosition);
+      }
     });
     return () => sub.remove();
   }, []);
@@ -453,13 +455,17 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     const { first, last } = visibleRangeRef.current;
     if (first !== -1 && segIndex >= first && segIndex <= last) return; // already visible
 
-    log.warn('diag-p1', `autoScroll seg ${prevSeg}→${segIndex} (jump ${segIndex - prevSeg}) animated wall=${Date.now()}`);
+    // Animate only small step-overs (normal playback). Snap with NO animation
+    // for big jumps — after a seek, or returning from a lock where the highlight
+    // skipped ahead — so FlashList doesn't churn the main thread animating
+    // across hundreds of variable-height rows (the unlock-freeze cause).
+    const animated = prevSeg >= 0 && Math.abs(segIndex - prevSeg) <= 3;
     try {
       // Land the line ~30% from the top — comfortable to read and clear of
       // the top bar (viewPosition is the fraction of the viewport).
       flashListRef.current?.scrollToIndex({
         index: segIndex,
-        animated: true,
+        animated,
         viewPosition: 0.3,
       });
     } catch {}
