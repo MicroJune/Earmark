@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../constants/colors';
+import type { Palette } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
 import { useReviewStore } from '../store/reviewStore';
 import { useLibraryStore } from '../store/libraryStore';
 import { toggleSavedItemPreview, stopPreview } from '../services/audio';
@@ -17,24 +18,27 @@ import type { MasteryLevel, SavedItem, ReviewGrade } from '../types';
 
 // ─── Mastery badge ────────────────────────────────────────────────────────────
 
-const MASTERY_COLOR: Record<MasteryLevel, string> = {
-  new:      COLORS.warning,
-  learning: COLORS.primary,
-  mastered: COLORS.success,
-};
+const makeMasteryColor = (c: Palette): Record<MasteryLevel, string> => ({
+  new:      c.warning,
+  learning: c.primary,
+  mastered: c.success,
+});
 
 // ─── 4-grade rating bar (SM-2) ────────────────────────────────────────────────
 // Used directly by the flashcard; the typed/multiple-choice modes derive a
 // grade from correctness instead of showing this.
 
-const GRADES: Array<{ grade: ReviewGrade; label: string; color: string }> = [
-  { grade: 'again', label: '重来',   color: COLORS.error },
-  { grade: 'hard',  label: '有点难', color: COLORS.warning },
-  { grade: 'good',  label: '记得',   color: COLORS.primary },
-  { grade: 'easy',  label: '很容易', color: COLORS.success },
+const makeGrades = (c: Palette): Array<{ grade: ReviewGrade; label: string; color: string }> => [
+  { grade: 'again', label: '重来',   color: c.error },
+  { grade: 'hard',  label: '有点难', color: c.warning },
+  { grade: 'good',  label: '记得',   color: c.primary },
+  { grade: 'easy',  label: '很容易', color: c.success },
 ];
 
 function GradeBar({ onGrade }: { onGrade: (g: ReviewGrade) => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const GRADES = useMemo(() => makeGrades(c), [c]);
   return (
     <View style={styles.gradeRow}>
       {GRADES.map(g => (
@@ -53,6 +57,8 @@ function GradeBar({ onGrade }: { onGrade: (g: ReviewGrade) => void }) {
 // ─── Session summary ──────────────────────────────────────────────────────────
 
 function SessionSummary({ onEnd }: { onEnd: () => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const session = useReviewStore(s => s.session);
   if (!session) return null;
   const total = session.correctCount + session.incorrectCount;
@@ -60,7 +66,7 @@ function SessionSummary({ onEnd }: { onEnd: () => void }) {
 
   return (
     <View style={styles.summaryCard}>
-      <Ionicons name="trophy" size={48} color={COLORS.warning} />
+      <Ionicons name="trophy" size={48} color={c.warning} />
       <Text style={styles.summaryTitle}>本轮完成!</Text>
       <Text style={styles.summaryScore}>{pct}%</Text>
       <Text style={styles.summarySubtitle}>记得 {session.correctCount} · 需加强 {session.incorrectCount}</Text>
@@ -77,6 +83,8 @@ function SessionSummary({ onEnd }: { onEnd: () => void }) {
 // matches the displayed sentence even when stored timestamps are off.
 
 function HearOriginalButton({ item }: { item: SavedItem }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const key = `review-${item.id}`;
   const state = usePreviewStore(s => (s.activeKey === key ? s.status : 'idle'));
   useEffect(() => () => stopPreview(), []);
@@ -86,8 +94,8 @@ function HearOriginalButton({ item }: { item: SavedItem }) {
   return (
     <Pressable style={styles.clipBtn} onPress={handlePlay}>
       {state === 'loading'
-        ? <ActivityIndicator size="small" color={COLORS.primary} />
-        : <Ionicons name={state === 'playing' ? 'pause' : 'volume-high-outline'} size={16} color={COLORS.primary} />}
+        ? <ActivityIndicator size="small" color={c.primary} />
+        : <Ionicons name={state === 'playing' ? 'pause' : 'volume-high-outline'} size={16} color={c.primary} />}
       <Text style={styles.clipBtnText}>{state === 'playing' ? '暂停' : '听原声'}</Text>
     </Pressable>
   );
@@ -95,9 +103,11 @@ function HearOriginalButton({ item }: { item: SavedItem }) {
 
 // Reads the word/phrase via TTS (word pack for single words) — clear enunciation.
 function SpeakWordButton({ item }: { item: SavedItem }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <Pressable style={styles.clipBtn} onPress={() => playSavedItemPronunciation(`review-pron-${item.id}`, item)}>
-      <Ionicons name="megaphone-outline" size={15} color={COLORS.primary} />
+      <Ionicons name="megaphone-outline" size={15} color={c.primary} />
       <Text style={styles.clipBtnText}>读单词</Text>
     </Pressable>
   );
@@ -107,10 +117,12 @@ function SpeakWordButton({ item }: { item: SavedItem }) {
 // Shown when a card was answered "重来" earlier this session and requeued.
 
 function RelearnBadge({ show }: { show?: boolean }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   if (!show) return null;
   return (
     <View style={styles.relearnBadge}>
-      <Ionicons name="refresh" size={12} color={COLORS.warning} />
+      <Ionicons name="refresh" size={12} color={c.warning} />
       <Text style={styles.relearnText}>再练一次</Text>
     </View>
   );
@@ -124,6 +136,9 @@ function RelearnBadge({ show }: { show?: boolean }) {
 function FlashcardMode({ item, onGrade, onSkip, isRelearn }: {
   item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const [revealed, setRevealed] = useState(false);
   // Reset reveal and auto-play the original clip when the item changes.
   useEffect(() => {
@@ -137,7 +152,7 @@ function FlashcardMode({ item, onGrade, onSkip, isRelearn }: {
       <View style={styles.card}>
         <View style={styles.cardTopRow}>
           <RelearnBadge show={isRelearn} />
-          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+          <View style={[styles.masteryDot, { backgroundColor: masteryColor[item.mastery] }]} />
         </View>
         <Text style={styles.cardPhrase}>{item.text}</Text>
         <View style={styles.audioRow}>
@@ -154,7 +169,7 @@ function FlashcardMode({ item, onGrade, onSkip, isRelearn }: {
             <Text style={styles.cardContext}>"{item.contextSentence}"</Text>
             {item.note && (
               <View style={styles.noteBlock}>
-                <Ionicons name="bulb-outline" size={14} color={COLORS.warning} />
+                <Ionicons name="bulb-outline" size={14} color={c.warning} />
                 <Text style={styles.noteText}>{item.note}</Text>
               </View>
             )}
@@ -190,6 +205,9 @@ function FlashcardMode({ item, onGrade, onSkip, isRelearn }: {
 function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
   item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const [answer, setAnswer] = useState('');
   const [checked, setChecked] = useState(false);
   useEffect(() => { setAnswer(''); setChecked(false); }, [item.id]);
@@ -216,7 +234,7 @@ function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
       <View style={styles.card}>
         <View style={styles.cardTopRow}>
           <RelearnBadge show={isRelearn} />
-          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+          <View style={[styles.masteryDot, { backgroundColor: masteryColor[item.mastery] }]} />
         </View>
         <Text style={styles.modeTag}>拼出空缺的词</Text>
         <Text style={styles.blankSentence}>{blanked}</Text>
@@ -229,7 +247,7 @@ function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
           value={answer}
           onChangeText={setAnswer}
           placeholder="输入空缺的单词或短语…"
-          placeholderTextColor={COLORS.textSecondary}
+          placeholderTextColor={c.textSecondary}
           editable={!checked}
           autoCapitalize="none"
           returnKeyType="done"
@@ -241,9 +259,9 @@ function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
             <Ionicons
               name={isCorrect ? 'checkmark-circle' : 'close-circle'}
               size={20}
-              color={isCorrect ? COLORS.success : COLORS.error}
+              color={isCorrect ? c.success : c.error}
             />
-            <Text style={[styles.feedbackText, { color: isCorrect ? COLORS.success : COLORS.error }]}>
+            <Text style={[styles.feedbackText, { color: isCorrect ? c.success : c.error }]}>
               {match === 'exact' ? '正确!'
                 : match === 'close' ? `差一点 — 正确写法: ${item.text}`
                 : `答案: ${item.text}`}
@@ -277,6 +295,9 @@ function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
 function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
   item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const allItems = useLibraryStore(s => s.items);
   const key = `li-${item.id}`;
   const state = usePreviewStore(s => (s.activeKey === key ? s.status : 'idle'));
@@ -317,7 +338,7 @@ function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
       <View style={styles.card}>
         <View style={styles.cardTopRow}>
           <RelearnBadge show={isRelearn} />
-          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+          <View style={[styles.masteryDot, { backgroundColor: masteryColor[item.mastery] }]} />
         </View>
 
         <Pressable style={styles.listenBtn} onPress={() => toggleSavedItemPreview(key, item).catch(() => {})}>
@@ -361,9 +382,9 @@ function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
               <Ionicons
                 name={isCorrect ? 'checkmark-circle' : 'close-circle'}
                 size={20}
-                color={isCorrect ? COLORS.success : COLORS.error}
+                color={isCorrect ? c.success : c.error}
               />
-              <Text style={[styles.feedbackText, { color: isCorrect ? COLORS.success : COLORS.error }]}>
+              <Text style={[styles.feedbackText, { color: isCorrect ? c.success : c.error }]}>
                 {isCorrect ? '正确!' : `正确答案: ${item.text}`}
               </Text>
             </View>
@@ -383,6 +404,8 @@ function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
 
 export default function ReviewScreen() {
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const { session, isLoading, startSession, endSession, grade, skipItem } = useReviewStore();
   const items = useLibraryStore(s => s.items);
   const loadItems = useLibraryStore(s => s.loadItems);
@@ -439,7 +462,7 @@ export default function ReviewScreen() {
                 {session!.currentIndex + 1} / {session!.queue.length}
               </Text>
               <Pressable style={styles.endSessionBtn} onPress={endSession} hitSlop={6}>
-                <Ionicons name="close" size={14} color={COLORS.textSecondary} />
+                <Ionicons name="close" size={14} color={c.textSecondary} />
                 <Text style={styles.endSessionText}>结束</Text>
               </Pressable>
             </View>
@@ -467,7 +490,7 @@ export default function ReviewScreen() {
 
             {dueCount > 0 ? (
               <View style={styles.heroCard}>
-                <Ionicons name="library" size={36} color={COLORS.primary} />
+                <Ionicons name="library" size={36} color={c.primary} />
                 <Text style={styles.heroTitle}>今日复习</Text>
                 <Text style={styles.heroSub}>
                   {dueCount} 个词到期 · 约 {estimateMinutes(dueCount)} 分钟
@@ -485,7 +508,7 @@ export default function ReviewScreen() {
               </View>
             ) : (
               <View style={styles.heroCard}>
-                <Ionicons name="checkmark-done-circle" size={40} color={COLORS.success} />
+                <Ionicons name="checkmark-done-circle" size={40} color={c.success} />
                 <Text style={styles.heroTitle}>今天复习完了 ✓</Text>
                 <Text style={styles.heroSub}>
                   {items.length === 0 ? '还没有保存任何短语 — 去转写里点选单词保存吧' : '到期的词都复习过了,记忆正在巩固'}
@@ -493,7 +516,7 @@ export default function ReviewScreen() {
                 {items.some(i => i.mastery !== 'mastered') && (
                   <Pressable style={styles.practiceBtn} onPress={() => handleStart(true)} disabled={isLoading}>
                     {isLoading
-                      ? <ActivityIndicator color={COLORS.primary} />
+                      ? <ActivityIndicator color={c.primary} />
                       : <Text style={styles.practiceBtnText}>提前练一些</Text>}
                   </Pressable>
                 )}
@@ -503,15 +526,15 @@ export default function ReviewScreen() {
             {/* Mastery breakdown */}
             <View style={styles.statsRow}>
               <View style={styles.statCard}>
-                <Text style={[styles.statNum, { color: COLORS.warning }]}>{masteryCounts.new}</Text>
+                <Text style={[styles.statNum, { color: c.warning }]}>{masteryCounts.new}</Text>
                 <Text style={styles.statLabel}>新词</Text>
               </View>
               <View style={styles.statCard}>
-                <Text style={[styles.statNum, { color: COLORS.primary }]}>{masteryCounts.learning}</Text>
+                <Text style={[styles.statNum, { color: c.primary }]}>{masteryCounts.learning}</Text>
                 <Text style={styles.statLabel}>学习中</Text>
               </View>
               <View style={styles.statCard}>
-                <Text style={[styles.statNum, { color: COLORS.success }]}>{masteryCounts.mastered}</Text>
+                <Text style={[styles.statNum, { color: c.success }]}>{masteryCounts.mastered}</Text>
                 <Text style={styles.statLabel}>已掌握</Text>
               </View>
             </View>
@@ -524,98 +547,100 @@ export default function ReviewScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  screen:           { flex: 1, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  screen:           { flex: 1, backgroundColor: c.background },
   scroll:           { padding: 20, flexGrow: 1 },
 
-  progressTrack:    { height: 3, backgroundColor: COLORS.border },
-  progressFill:     { height: 3, backgroundColor: COLORS.primary },
+  progressTrack:    { height: 3, backgroundColor: c.border },
+  progressFill:     { height: 3, backgroundColor: c.primary },
 
-  streakBanner:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.warning + '18', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 16 },
-  streakText:       { fontSize: 15, fontWeight: '700', color: COLORS.text },
-  streakSub:        { fontSize: 13, color: COLORS.textSecondary },
+  streakBanner:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: c.warning + '18', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 16 },
+  streakText:       { fontSize: 15, fontWeight: '700', color: c.text },
+  streakSub:        { fontSize: 13, color: c.textSecondary },
 
-  heroCard:         { alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 20, padding: 28, marginBottom: 20 },
-  heroTitle:        { fontSize: 22, fontWeight: '800', color: COLORS.text, marginTop: 12 },
-  heroSub:          { fontSize: 14, color: COLORS.textSecondary, marginTop: 6, textAlign: 'center', lineHeight: 20 },
-  heroNote:         { fontSize: 12, color: COLORS.textSecondary, marginTop: 12, textAlign: 'center' },
+  heroCard:         { alignItems: 'center', backgroundColor: c.surface, borderRadius: 20, padding: 28, marginBottom: 20 },
+  heroTitle:        { fontSize: 22, fontWeight: '800', color: c.text, marginTop: 12 },
+  heroSub:          { fontSize: 14, color: c.textSecondary, marginTop: 6, textAlign: 'center', lineHeight: 20 },
+  heroNote:         { fontSize: 12, color: c.textSecondary, marginTop: 12, textAlign: 'center' },
 
-  startBtn:         { backgroundColor: COLORS.primary, borderRadius: 14, paddingHorizontal: 40, paddingVertical: 15, alignItems: 'center', marginTop: 20, alignSelf: 'stretch' },
+  startBtn:         { backgroundColor: c.primary, borderRadius: 14, paddingHorizontal: 40, paddingVertical: 15, alignItems: 'center', marginTop: 20, alignSelf: 'stretch' },
   startBtnText:     { color: '#fff', fontSize: 16, fontWeight: '700' },
-  practiceBtn:      { borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 18 },
-  practiceBtnText:  { color: COLORS.primary, fontSize: 14, fontWeight: '700' },
+  practiceBtn:      { borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12, marginTop: 18 },
+  practiceBtnText:  { color: c.primary, fontSize: 14, fontWeight: '700' },
 
   statsRow:         { flexDirection: 'row', gap: 12 },
-  statCard:         { flex: 1, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, alignItems: 'center' },
-  statNum:          { fontSize: 24, fontWeight: '800', color: COLORS.text },
-  statLabel:        { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  statCard:         { flex: 1, backgroundColor: c.surface, borderRadius: 12, padding: 14, alignItems: 'center' },
+  statNum:          { fontSize: 24, fontWeight: '800', color: c.text },
+  statLabel:        { fontSize: 12, color: c.textSecondary, marginTop: 2 },
 
   sessionHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  sessionCounter:   { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
-  endSessionBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  endSessionText:   { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+  sessionCounter:   { fontSize: 14, fontWeight: '600', color: c.textSecondary },
+  endSessionBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  endSessionText:   { fontSize: 13, fontWeight: '600', color: c.textSecondary },
 
   modeContainer:    { flex: 1 },
-  card:             { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24 },
+  card:             { backgroundColor: c.surface, borderRadius: 16, padding: 24 },
   cardTopRow:       { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   masteryDot:       { width: 8, height: 8, borderRadius: 4, marginLeft: 'auto' },
-  relearnBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.warning + '1A', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  relearnText:      { fontSize: 12, fontWeight: '700', color: COLORS.warning },
-  modeTag:          { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600', marginBottom: 8 },
-  cardPhrase:       { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: 16 },
-  divider:          { height: 1, backgroundColor: COLORS.border, marginBottom: 16 },
-  meaningZh:        { fontSize: 20, fontWeight: '800', color: COLORS.text, marginBottom: 12 },
-  meaningMissing:   { fontSize: 14, color: COLORS.textSecondary, fontStyle: 'italic', marginBottom: 12 },
-  cardContext:      { fontSize: 15, color: COLORS.textSecondary, fontStyle: 'italic', lineHeight: 22, marginBottom: 16 },
-  recallHint:       { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 12 },
+  relearnBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.warning + '1A', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  relearnText:      { fontSize: 12, fontWeight: '700', color: c.warning },
+  modeTag:          { fontSize: 12, color: c.textSecondary, fontWeight: '600', marginBottom: 8 },
+  cardPhrase:       { fontSize: 26, fontWeight: '800', color: c.text, marginBottom: 16 },
+  divider:          { height: 1, backgroundColor: c.border, marginBottom: 16 },
+  meaningZh:        { fontSize: 20, fontWeight: '800', color: c.text, marginBottom: 12 },
+  meaningMissing:   { fontSize: 14, color: c.textSecondary, fontStyle: 'italic', marginBottom: 12 },
+  cardContext:      { fontSize: 15, color: c.textSecondary, fontStyle: 'italic', lineHeight: 22, marginBottom: 16 },
+  recallHint:       { fontSize: 13, color: c.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 12 },
 
-  gradePrompt:      { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 10 },
+  gradePrompt:      { fontSize: 13, color: c.textSecondary, textAlign: 'center', marginBottom: 10 },
   gradeRow:         { flexDirection: 'row', gap: 8 },
   gradeBtn:         { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: 10, borderWidth: 1.5 },
   gradeText:        { fontSize: 13, fontWeight: '700' },
 
-  revealBtn:        { backgroundColor: COLORS.primary, borderRadius: 12, padding: 14, alignItems: 'center' },
+  revealBtn:        { backgroundColor: c.primary, borderRadius: 12, padding: 14, alignItems: 'center' },
   revealBtnText:    { color: '#fff', fontSize: 15, fontWeight: '700' },
   skipLink:         { alignItems: 'center', paddingVertical: 10, marginTop: 4 },
-  skipLinkText:     { fontSize: 13, color: COLORS.textSecondary },
+  skipLinkText:     { fontSize: 13, color: c.textSecondary },
 
-  blankSentence:    { fontSize: 18, color: COLORS.text, lineHeight: 28, marginBottom: 20, fontStyle: 'italic' },
-  blankInput:       { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 10, padding: 12, fontSize: 15, color: COLORS.text, marginBottom: 12 },
-  inputCorrect:     { borderColor: COLORS.success, backgroundColor: COLORS.success + '11' },
-  inputIncorrect:   { borderColor: COLORS.error,   backgroundColor: COLORS.error   + '11' },
+  blankSentence:    { fontSize: 18, color: c.text, lineHeight: 28, marginBottom: 20, fontStyle: 'italic' },
+  blankInput:       { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, color: c.text, marginBottom: 12 },
+  inputCorrect:     { borderColor: c.success, backgroundColor: c.success + '11' },
+  inputIncorrect:   { borderColor: c.error,   backgroundColor: c.error   + '11' },
   feedbackRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
   feedbackText:     { fontSize: 14, fontWeight: '600' },
   blankActions:     { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
-  skipBtn:          { alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border },
-  skipBtnText:      { fontSize: 13, color: COLORS.textSecondary },
-  checkBtn:         { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  skipBtn:          { alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: c.border },
+  skipBtnText:      { fontSize: 13, color: c.textSecondary },
+  checkBtn:         { backgroundColor: c.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
   checkBtnText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
 
-  clipBtn:          { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: COLORS.primaryLight, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 16 },
-  clipBtnText:      { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+  clipBtn:          { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: c.primaryLight, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, marginBottom: 16 },
+  clipBtnText:      { fontSize: 13, fontWeight: '600', color: c.primary },
   audioRow:         { flexDirection: 'row', gap: 8 },
 
-  noteBlock:        { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: COLORS.warning + '14', borderRadius: 10, padding: 12, marginBottom: 12 },
-  noteText:         { flex: 1, fontSize: 13, color: COLORS.text, lineHeight: 19 },
+  noteBlock:        { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: c.warning + '14', borderRadius: 10, padding: 12, marginBottom: 12 },
+  noteText:         { flex: 1, fontSize: 13, color: c.text, lineHeight: 19 },
 
-  enrichBlock:      { backgroundColor: COLORS.background, borderRadius: 10, padding: 12, marginBottom: 16 },
-  enrichZh:         { fontSize: 15, color: COLORS.text, fontWeight: '600', marginBottom: 4 },
-  enrichDef:        { fontSize: 13, color: COLORS.textSecondary, lineHeight: 19 },
-  enrichSyn:        { fontSize: 13, color: COLORS.primary, marginTop: 6 },
+  enrichBlock:      { backgroundColor: c.background, borderRadius: 10, padding: 12, marginBottom: 16 },
+  enrichZh:         { fontSize: 15, color: c.text, fontWeight: '600', marginBottom: 4 },
+  enrichDef:        { fontSize: 13, color: c.textSecondary, lineHeight: 19 },
+  enrichSyn:        { fontSize: 13, color: c.primary, marginTop: 6 },
 
-  listenBtn:        { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 12 },
-  listenHint:       { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 16 },
-  listenError:      { fontSize: 12, color: COLORS.error, textAlign: 'center', marginBottom: 12 },
+  listenBtn:        { width: 72, height: 72, borderRadius: 36, backgroundColor: c.primary, justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 12 },
+  listenHint:       { fontSize: 13, color: c.textSecondary, textAlign: 'center', marginBottom: 16 },
+  listenError:      { fontSize: 12, color: c.error, textAlign: 'center', marginBottom: 12 },
   choices:          { gap: 8, marginBottom: 16 },
-  choiceBtn:        { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 10, padding: 14, backgroundColor: COLORS.background },
-  choiceCorrect:    { borderColor: COLORS.success, backgroundColor: COLORS.success + '11' },
-  choiceIncorrect:  { borderColor: COLORS.error, backgroundColor: COLORS.error + '11' },
-  choiceText:       { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  choiceBtn:        { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, backgroundColor: c.background },
+  choiceCorrect:    { borderColor: c.success, backgroundColor: c.success + '11' },
+  choiceIncorrect:  { borderColor: c.error, backgroundColor: c.error + '11' },
+  choiceText:       { fontSize: 14, fontWeight: '600', color: c.text },
 
-  summaryCard:      { alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 20, padding: 32 },
-  summaryTitle:     { fontSize: 22, fontWeight: '800', color: COLORS.text, marginTop: 16 },
-  summaryScore:     { fontSize: 56, fontWeight: '900', color: COLORS.primary, marginVertical: 8 },
-  summarySubtitle:  { fontSize: 14, color: COLORS.textSecondary, marginBottom: 24 },
-  endBtn:           { backgroundColor: COLORS.primary, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 },
+  summaryCard:      { alignItems: 'center', backgroundColor: c.surface, borderRadius: 20, padding: 32 },
+  summaryTitle:     { fontSize: 22, fontWeight: '800', color: c.text, marginTop: 16 },
+  summaryScore:     { fontSize: 56, fontWeight: '900', color: c.primary, marginVertical: 8 },
+  summarySubtitle:  { fontSize: 14, color: c.textSecondary, marginBottom: 24 },
+  endBtn:           { backgroundColor: c.primary, borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 },
   endBtnText:       { color: '#fff', fontWeight: '700' },
-});
+  });
+}

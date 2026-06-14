@@ -7,7 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList, AudioFile } from '../types';
-import { COLORS } from '../constants/colors';
+import type { Palette } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
 import { useAudioFilesStore } from '../store/audioFilesStore';
 import { pickAudioFiles, getAudioFileSize } from '../services/filePicker';
 import { transcribeAndSave } from '../services/transcription';
@@ -27,12 +28,12 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'CategoryView'>;
 
 // ─── Audio file card ──────────────────────────────────────────────────────────
 
-const STATUS_COLOR: Record<string, string> = {
-  pending:      COLORS.textSecondary,
-  transcribing: COLORS.warning,
-  ready:        COLORS.success,
-  error:        COLORS.error,
-};
+const makeStatusColor = (c: Palette): Record<string, string> => ({
+  pending:      c.textSecondary,
+  transcribing: c.warning,
+  ready:        c.success,
+  error:        c.error,
+});
 
 const STATUS_LABEL: Record<string, string> = {
   pending:      '待转写',
@@ -67,6 +68,9 @@ function AudioFileCard({
   onMoveUp?: () => void;
   onMoveDown?: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const statusColor = useMemo(() => makeStatusColor(c), [c]);
   const progress = useAudioFilesStore(s => s.transcriptionProgress[item.id]);
 
   const statusLabel =
@@ -93,7 +97,7 @@ function AudioFileCard({
             {selected && <Ionicons name="checkmark" size={14} color="#fff" />}
           </View>
         ) : (
-          <Ionicons name="musical-notes" size={24} color={COLORS.primary} />
+          <Ionicons name="musical-notes" size={24} color={c.primary} />
         )}
       </View>
       <View style={styles.cardBody}>
@@ -126,7 +130,7 @@ function AudioFileCard({
           {listenedPercent > 0 && (
             <>
               <Text style={styles.cardMetaText}>·</Text>
-              <Text style={[styles.cardMetaText, { color: COLORS.primary }]}>{listenedPercent}% listened</Text>
+              <Text style={[styles.cardMetaText, { color: c.primary }]}>{listenedPercent}% listened</Text>
             </>
           )}
         </View>
@@ -141,22 +145,22 @@ function AudioFileCard({
         )}
       </View>
 
-      <View style={[styles.statusBadge, { backgroundColor: STATUS_COLOR[item.status] + '22' }]}>
-        <Text style={[styles.statusText, { color: STATUS_COLOR[item.status] }]}>
+      <View style={[styles.statusBadge, { backgroundColor: statusColor[item.status] + '22' }]}>
+        <Text style={[styles.statusText, { color: statusColor[item.status] }]}>
           {statusLabel}
         </Text>
         {item.status === 'transcribing' && (
-          <ActivityIndicator size="small" color={COLORS.warning} style={{ marginLeft: 4 }} />
+          <ActivityIndicator size="small" color={c.warning} style={{ marginLeft: 4 }} />
         )}
       </View>
 
       {manualMode && !isSelecting && (
         <View style={styles.reorderCol}>
           <Pressable onPress={onMoveUp} hitSlop={6} disabled={!onMoveUp} style={{ opacity: onMoveUp ? 1 : 0.25 }}>
-            <Ionicons name="chevron-up" size={18} color={COLORS.primary} />
+            <Ionicons name="chevron-up" size={18} color={c.primary} />
           </Pressable>
           <Pressable onPress={onMoveDown} hitSlop={6} disabled={!onMoveDown} style={{ opacity: onMoveDown ? 1 : 0.25 }}>
-            <Ionicons name="chevron-down" size={18} color={COLORS.primary} />
+            <Ionicons name="chevron-down" size={18} color={c.primary} />
           </Pressable>
         </View>
       )}
@@ -170,6 +174,8 @@ function AudioFileCard({
 export default function CategoryScreen({ navigation, route }: Props) {
   const { categoryId, categoryName } = route.params;
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [moveVisible, setMoveVisible] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -395,48 +401,48 @@ export default function CategoryScreen({ navigation, route }: Props) {
     navigation.setOptions({
       headerLeft: isSelecting ? () => (
         <Pressable onPress={exitSelection} style={{ padding: 4, marginLeft: 4 }}>
-          <Text style={{ color: COLORS.primary, fontSize: 15 }}>取消</Text>
+          <Text style={{ color: c.primary, fontSize: 15 }}>取消</Text>
         </Pressable>
       ) : undefined,
       headerTitle: isSelecting ? `已选 ${selectedIds.size} 项` : categoryName,
       headerRight: isSelecting ? () => (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginRight: 4 }}>
           <Pressable onPress={handleTranscribeSelected} style={{ padding: 2 }}>
-            <Text style={{ color: COLORS.primary, fontSize: 14, fontWeight: '600' }}>转写</Text>
+            <Text style={{ color: c.primary, fontSize: 14, fontWeight: '600' }}>转写</Text>
           </Pressable>
           <Pressable onPress={() => setMoveVisible(true)} style={{ padding: 4 }}>
-            <Ionicons name="folder-open-outline" size={20} color={COLORS.primary} />
+            <Ionicons name="folder-open-outline" size={20} color={c.primary} />
           </Pressable>
           <Pressable onPress={handleDeleteSelected} style={{ padding: 4 }}>
-            <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+            <Ionicons name="trash-outline" size={20} color={c.error} />
           </Pressable>
         </View>
       ) : undefined,
     });
-  }, [navigation, isSelecting, selectedIds.size, categoryName, handleDeleteSelected, handleTranscribeSelected, exitSelection]);
+  }, [navigation, isSelecting, selectedIds.size, categoryName, handleDeleteSelected, handleTranscribeSelected, exitSelection, c]);
 
   return (
     <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
       {/* Search + sort */}
       <View style={styles.toolbar}>
         <View style={styles.searchBox}>
-          <Ionicons name="search" size={15} color={COLORS.textSecondary} />
+          <Ionicons name="search" size={15} color={c.textSecondary} />
           <TextInput
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
             placeholder="搜索文件名…"
-            placeholderTextColor={COLORS.textSecondary}
+            placeholderTextColor={c.textSecondary}
             returnKeyType="search"
           />
           {query.length > 0 && (
             <Pressable onPress={() => setQuery('')} hitSlop={6}>
-              <Ionicons name="close-circle" size={15} color={COLORS.textSecondary} />
+              <Ionicons name="close-circle" size={15} color={c.textSecondary} />
             </Pressable>
           )}
         </View>
         <Pressable style={styles.sortBtn} onPress={handleSortPress}>
-          <Ionicons name="swap-vertical" size={13} color={COLORS.primary} />
+          <Ionicons name="swap-vertical" size={13} color={c.primary} />
           <Text style={styles.sortBtnText}>{SORT_LABEL[sortMode]}</Text>
         </Pressable>
       </View>
@@ -460,7 +466,7 @@ export default function CategoryScreen({ navigation, route }: Props) {
         ListEmptyComponent={
           isLoading ? null : (
             <View style={styles.empty}>
-              <Ionicons name={query ? 'search-outline' : 'headset-outline'} size={64} color={COLORS.border} />
+              <Ionicons name={query ? 'search-outline' : 'headset-outline'} size={64} color={c.border} />
               <Text style={styles.emptyTitle}>{query ? '没有匹配的文件' : 'No podcasts here yet'}</Text>
               <Text style={styles.emptySubtitle}>
                 {query ? '换个关键词试试' : 'Tap + to import audio files into this category'}
@@ -482,7 +488,7 @@ export default function CategoryScreen({ navigation, route }: Props) {
       {deleteProgress && (
         <View style={styles.progressOverlay}>
           <View style={styles.progressCard}>
-            <ActivityIndicator size="small" color={COLORS.primary} />
+            <ActivityIndicator size="small" color={c.primary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.progressTitle}>
                 正在删除 {Math.min(deleteProgress.done + 1, deleteProgress.total)}/{deleteProgress.total} 个文件…
@@ -510,43 +516,45 @@ export default function CategoryScreen({ navigation, route }: Props) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  screen:         { flex: 1, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  screen:         { flex: 1, backgroundColor: c.background },
   list:           { padding: 16, paddingTop: 8, flexGrow: 1 },
 
   toolbar:        { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 10 },
-  searchBox:      { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderRadius: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: COLORS.border },
-  searchInput:    { flex: 1, paddingVertical: 8, fontSize: 13, color: COLORS.text },
-  sortBtn:        { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: COLORS.primaryLight, borderRadius: 10 },
-  sortBtnText:    { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  searchBox:      { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.surface, borderRadius: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border },
+  searchInput:    { flex: 1, paddingVertical: 8, fontSize: 13, color: c.text },
+  sortBtn:        { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 9, backgroundColor: c.primaryLight, borderRadius: 10 },
+  sortBtnText:    { fontSize: 12, color: c.primary, fontWeight: '600' },
 
-  card:           { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, marginBottom: 10 },
-  cardSelected:   { backgroundColor: COLORS.primaryLight, borderWidth: 1, borderColor: COLORS.primary },
-  cardIcon:       { width: 44, height: 44, borderRadius: 10, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  checkbox:       { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center' },
-  checkboxSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  card:           { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 12, padding: 12, marginBottom: 10 },
+  cardSelected:   { backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.primary },
+  cardIcon:       { width: 44, height: 44, borderRadius: 10, backgroundColor: c.primaryLight, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  checkbox:       { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: c.border, justifyContent: 'center', alignItems: 'center' },
+  checkboxSelected: { backgroundColor: c.primary, borderColor: c.primary },
   cardBody:       { flex: 1 },
   titleScroll:    { marginBottom: 4 },
-  cardTitle:      { fontSize: 15, fontWeight: '600', color: COLORS.text },
+  cardTitle:      { fontSize: 15, fontWeight: '600', color: c.text },
   cardMeta:       { flexDirection: 'row', gap: 4 },
-  cardMetaText:   { fontSize: 12, color: COLORS.textSecondary },
-  cardError:      { fontSize: 12, color: COLORS.error, marginTop: 2 },
-  cardRetryHint:  { fontSize: 11, color: COLORS.primary, fontWeight: '600', marginTop: 2 },
+  cardMetaText:   { fontSize: 12, color: c.textSecondary },
+  cardError:      { fontSize: 12, color: c.error, marginTop: 2 },
+  cardRetryHint:  { fontSize: 11, color: c.primary, fontWeight: '600', marginTop: 2 },
   statusBadge:    { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
   statusText:     { fontSize: 11, fontWeight: '600' },
 
   reorderCol:     { marginLeft: 6, alignItems: 'center', gap: 6 },
 
-  fab:            { position: 'absolute', right: 24, width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', elevation: 6, shadowColor: COLORS.primary, shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  fab:            { position: 'absolute', right: 24, width: 56, height: 56, borderRadius: 28, backgroundColor: c.primary, justifyContent: 'center', alignItems: 'center', elevation: 6, shadowColor: c.primary, shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
 
   progressOverlay:{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, backgroundColor: 'rgba(0,0,0,0.25)', justifyContent: 'flex-end', padding: 16 },
-  progressCard:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, elevation: 8 },
-  progressTitle:  { fontSize: 14, fontWeight: '700', color: COLORS.text },
-  progressSubtitle:{ fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  progressTrack:  { height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginTop: 8 },
-  progressFill:   { height: 4, backgroundColor: COLORS.primary, borderRadius: 2 },
+  progressCard:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 16, elevation: 8 },
+  progressTitle:  { fontSize: 14, fontWeight: '700', color: c.text },
+  progressSubtitle:{ fontSize: 12, color: c.textSecondary, marginTop: 2 },
+  progressTrack:  { height: 4, backgroundColor: c.border, borderRadius: 2, marginTop: 8 },
+  progressFill:   { height: 4, backgroundColor: c.primary, borderRadius: 2 },
 
   empty:          { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80 },
-  emptyTitle:     { fontSize: 18, fontWeight: '700', color: COLORS.text, marginTop: 16 },
-  emptySubtitle:  { fontSize: 14, color: COLORS.textSecondary, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
-});
+  emptyTitle:     { fontSize: 18, fontWeight: '700', color: c.text, marginTop: 16 },
+  emptySubtitle:  { fontSize: 14, color: c.textSecondary, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
+  });
+}

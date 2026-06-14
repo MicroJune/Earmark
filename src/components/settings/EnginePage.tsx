@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 import { WHISPER_MODELS } from '../../services/transcription/models';
 import type { TranscriptionEngine, WhisperModelName, ModelMirror } from '../../services/settings';
 import { StatusBadge, PageIntro, SectionTitle, Hint, Segmented, KeyInput } from './ui';
@@ -35,15 +36,17 @@ function ModeCard({
   badgeTone: 'ok' | 'warn' | 'muted'; badgeText: string;
   onPress: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <Pressable
       style={[styles.modeCard, active && styles.modeCardActive, disabled && { opacity: 0.55 }]}
       onPress={onPress}
     >
       <View style={styles.modeHeader}>
-        <Ionicons name={icon as any} size={22} color={active ? COLORS.primary : COLORS.textSecondary} />
-        <Text style={[styles.modeTitle, active && { color: COLORS.primary }]}>{title}</Text>
-        {active && <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />}
+        <Ionicons name={icon as any} size={22} color={active ? c.primary : c.textSecondary} />
+        <Text style={[styles.modeTitle, active && { color: c.primary }]}>{title}</Text>
+        {active && <Ionicons name="checkmark-circle" size={20} color={c.primary} />}
       </View>
       <Text style={styles.modeSubtitle}>{subtitle}</Text>
       <StatusBadge tone={badgeTone} text={badgeText} />
@@ -56,6 +59,8 @@ export default function EnginePage({
   downloaded, activeModel, downloading, onDownload, onDeleteModel, onSelectModel,
   mirror, onMirror, volcKey, onSaveVolcKey,
 }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [advanced, setAdvanced] = useState(false);
 
   const offlineReady = localSupported && downloaded.includes(activeModel);
@@ -129,7 +134,7 @@ export default function EnginePage({
               <Text style={styles.progressPct}>{Math.round(recommendedProgress * 100)}%</Text>
             ) : recommendedDownloaded ? (
               activeModel === RECOMMENDED_MODEL ? (
-                <Ionicons name="checkmark-circle" size={22} color={COLORS.success} />
+                <Ionicons name="checkmark-circle" size={22} color={c.success} />
               ) : (
                 <Pressable style={styles.useBtn} onPress={() => onSelectModel(RECOMMENDED_MODEL)}>
                   <Text style={styles.useBtnText}>使用</Text>
@@ -148,7 +153,7 @@ export default function EnginePage({
 
           <Pressable style={styles.advancedToggle} onPress={() => setAdvanced(a => !a)}>
             <Text style={styles.advancedToggleText}>高级选项</Text>
-            <Ionicons name={advanced ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textSecondary} />
+            <Ionicons name={advanced ? 'chevron-up' : 'chevron-down'} size={16} color={c.textSecondary} />
           </Pressable>
 
           {advanced && (
@@ -180,9 +185,9 @@ export default function EnginePage({
                       <Text style={styles.progressPct}>{Math.round(progress * 100)}%</Text>
                     ) : isDownloaded ? (
                       <View style={styles.modelActions}>
-                        {activeModel === m.name && <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />}
+                        {activeModel === m.name && <Ionicons name="checkmark-circle" size={20} color={c.primary} />}
                         <Pressable onPress={() => onDeleteModel(m.name)} hitSlop={8}>
-                          <Ionicons name="trash-outline" size={17} color={COLORS.textSecondary} />
+                          <Ionicons name="trash-outline" size={17} color={c.textSecondary} />
                         </Pressable>
                       </View>
                     ) : (
@@ -227,32 +232,34 @@ export default function EnginePage({
   );
 }
 
-const styles = StyleSheet.create({
-  modeCard:       { backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1.5, borderColor: 'transparent' },
-  modeCardActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  modeCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1.5, borderColor: 'transparent' },
+  modeCardActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
   modeHeader:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  modeTitle:      { flex: 1, fontSize: 15, fontWeight: '700', color: COLORS.text },
-  modeSubtitle:   { fontSize: 12, color: COLORS.textSecondary, marginTop: 6 },
+  modeTitle:      { flex: 1, fontSize: 15, fontWeight: '700', color: c.text },
+  modeSubtitle:   { fontSize: 12, color: c.textSecondary, marginTop: 6 },
 
-  recommendRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14 },
-  recommendName:  { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  recommendTag:   { fontSize: 11, color: COLORS.primary, fontWeight: '700' },
-  recommendDesc:  { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  recommendRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 12, padding: 14 },
+  recommendName:  { fontSize: 14, fontWeight: '600', color: c.text },
+  recommendTag:   { fontSize: 11, color: c.primary, fontWeight: '700' },
+  recommendDesc:  { fontSize: 12, color: c.textSecondary, marginTop: 2 },
 
-  modelRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1.5, borderColor: 'transparent' },
-  modelRowActive: { borderColor: COLORS.primary },
-  modelSize:      { fontSize: 11, color: COLORS.textSecondary, marginTop: 4 },
+  modelRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1.5, borderColor: 'transparent' },
+  modelRowActive: { borderColor: c.primary },
+  modelSize:      { fontSize: 11, color: c.textSecondary, marginTop: 4 },
   modelActions:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
 
-  downloadBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  downloadBtn:    { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   downloadBtnText:{ color: '#fff', fontSize: 13, fontWeight: '600' },
-  useBtn:         { borderWidth: 1, borderColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
-  useBtnText:     { color: COLORS.primary, fontSize: 13, fontWeight: '600' },
+  useBtn:         { borderWidth: 1, borderColor: c.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
+  useBtnText:     { color: c.primary, fontSize: 13, fontWeight: '600' },
 
-  progressTrack:  { height: 4, backgroundColor: COLORS.border, borderRadius: 2, marginTop: 8 },
-  progressFill:   { height: 4, backgroundColor: COLORS.primary, borderRadius: 2 },
-  progressPct:    { fontSize: 12, fontWeight: '600', color: COLORS.primary, width: 40, textAlign: 'right' },
+  progressTrack:  { height: 4, backgroundColor: c.border, borderRadius: 2, marginTop: 8 },
+  progressFill:   { height: 4, backgroundColor: c.primary, borderRadius: 2 },
+  progressPct:    { fontSize: 12, fontWeight: '600', color: c.primary, width: 40, textAlign: 'right' },
 
   advancedToggle:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 12, marginTop: 4 },
-  advancedToggleText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' },
-});
+  advancedToggleText: { fontSize: 13, color: c.textSecondary, fontWeight: '600' },
+  });
+}

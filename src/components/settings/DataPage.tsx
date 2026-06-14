@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 import { PageIntro } from './ui';
 import StorageModal from '../StorageModal';
 
@@ -20,21 +21,25 @@ function DataRow({
   icon: string; title: string; subtitle: string;
   busy?: boolean; chevron?: boolean; onPress: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <Pressable style={styles.row} onPress={onPress} disabled={busy}>
       {busy
-        ? <ActivityIndicator size="small" color={COLORS.primary} />
-        : <Ionicons name={icon as any} size={18} color={COLORS.primary} />}
+        ? <ActivityIndicator size="small" color={c.primary} />
+        : <Ionicons name={icon as any} size={18} color={c.primary} />}
       <View style={{ flex: 1 }}>
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowSubtitle}>{subtitle}</Text>
       </View>
-      {chevron && <Ionicons name="chevron-forward" size={16} color={COLORS.textSecondary} />}
+      {chevron && <Ionicons name="chevron-forward" size={16} color={c.textSecondary} />}
     </Pressable>
   );
 }
 
 export default function DataPage({ exporting, importing, onExport, onImport }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [storageVisible, setStorageVisible] = useState(false);
 
   return (
@@ -74,9 +79,11 @@ export default function DataPage({ exporting, importing, onExport, onImport }: P
   );
 }
 
-const styles = StyleSheet.create({
-  row:         { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 8 },
-  rowTitle:    { fontSize: 14, fontWeight: '600', color: COLORS.text },
-  rowSubtitle: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  migrateHint: { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18, marginTop: 12, paddingHorizontal: 2 },
-});
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  row:         { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 8 },
+  rowTitle:    { fontSize: 14, fontWeight: '600', color: c.text },
+  rowSubtitle: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+  migrateHint: { fontSize: 12, color: c.textSecondary, lineHeight: 18, marginTop: 12, paddingHorizontal: 2 },
+  });
+}

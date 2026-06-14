@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, Pressable, TextInput,
   StyleSheet, Alert, Modal, useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../constants/colors';
+import type { Palette } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
 import { useLibraryStore, type LibrarySort } from '../store/libraryStore';
 import type { SavedItem, SavedItemType, MasteryLevel } from '../types';
 import { formatRelativeDate, formatNextReview } from '../utils/timeFormat';
@@ -27,11 +28,11 @@ const MASTERY_FILTERS: Array<{ label: string; value: MasteryLevel | 'all' }> = [
   { label: 'Mastered', value: 'mastered' },
 ];
 
-const MASTERY_COLOR: Record<MasteryLevel, string> = {
-  new:      COLORS.warning,
-  learning: COLORS.primary,
-  mastered: COLORS.success,
-};
+const makeMasteryColor = (c: Palette): Record<MasteryLevel, string> => ({
+  new:      c.warning,
+  learning: c.primary,
+  mastered: c.success,
+});
 
 const MASTERY_OPTIONS: Array<{ value: MasteryLevel; label: string }> = [
   { value: 'new',      label: 'New'      },
@@ -53,6 +54,9 @@ function MasteryMenu({
   onSelect: (m: MasteryLevel) => void;
   onClose: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const { height: screenH } = useWindowDimensions();
   const MENU_W = 150;
   const MENU_H = MASTERY_OPTIONS.length * 44 + 8;
@@ -66,10 +70,10 @@ function MasteryMenu({
       <View style={[styles.menu, { top, left, width: MENU_W }]}>
         {MASTERY_OPTIONS.map(o => (
           <Pressable key={o.value} style={styles.menuItem} onPress={() => onSelect(o.value)}>
-            <View style={[styles.menuDot, { backgroundColor: MASTERY_COLOR[o.value] }]} />
+            <View style={[styles.menuDot, { backgroundColor: masteryColor[o.value] }]} />
             <Text style={styles.menuItemText}>{o.label}</Text>
             {current === o.value && (
-              <Ionicons name="checkmark" size={16} color={COLORS.primary} style={styles.menuCheck} />
+              <Ionicons name="checkmark" size={16} color={c.primary} style={styles.menuCheck} />
             )}
           </Pressable>
         ))}
@@ -88,6 +92,8 @@ const SORT_CYCLE: Array<{ value: LibrarySort; label: string }> = [
 function FilterChip<T extends string>({
   label, active, onPress,
 }: { label: string; active: boolean; onPress: () => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <Pressable
       style={[styles.chip, active && styles.chipActive]}
@@ -112,6 +118,9 @@ function SavedItemCard({
   selected: boolean;
   onToggleSelect: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const badgeRef = useRef<View>(null);
   const openMenu = () => {
     badgeRef.current?.measureInWindow((x, y, width, height) =>
@@ -130,18 +139,18 @@ function SavedItemCard({
           <Ionicons
             name={selected ? 'checkmark-circle' : 'ellipse-outline'}
             size={20}
-            color={selected ? COLORS.primary : COLORS.textSecondary}
+            color={selected ? c.primary : c.textSecondary}
             style={styles.selectDot}
           />
         )}
         <Text style={styles.cardText}>{item.text}</Text>
         <View style={styles.cardTopIcons}>
           {item.enrichment && (
-            <Ionicons name="sparkles" size={13} color={COLORS.primary} />
+            <Ionicons name="sparkles" size={13} color={c.primary} />
           )}
           {!selectionMode && (
             <Pressable onPress={onDelete} hitSlop={8}>
-              <Ionicons name="trash-outline" size={16} color={COLORS.textSecondary} />
+              <Ionicons name="trash-outline" size={16} color={c.textSecondary} />
             </Pressable>
           )}
         </View>
@@ -157,15 +166,15 @@ function SavedItemCard({
         <Text style={styles.nextReview}>{formatNextReview(item.nextReview)}</Text>
         <Pressable
           ref={badgeRef}
-          style={[styles.masteryBadge, { backgroundColor: MASTERY_COLOR[item.mastery] + '22' }]}
+          style={[styles.masteryBadge, { backgroundColor: masteryColor[item.mastery] + '22' }]}
           onPress={openMenu}
           disabled={selectionMode}
           hitSlop={6}
         >
-          <Text style={[styles.masteryText, { color: MASTERY_COLOR[item.mastery] }]}>
+          <Text style={[styles.masteryText, { color: masteryColor[item.mastery] }]}>
             {item.mastery}
           </Text>
-          <Ionicons name="chevron-down" size={12} color={MASTERY_COLOR[item.mastery]} />
+          <Ionicons name="chevron-down" size={12} color={masteryColor[item.mastery]} />
         </Pressable>
       </View>
     </Pressable>
@@ -181,6 +190,9 @@ function BatchMasteryModal({
   onSelect: (m: MasteryLevel) => void;
   onClose: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.batchBackdrop} onPress={onClose}>
@@ -188,7 +200,7 @@ function BatchMasteryModal({
           <Text style={styles.batchTitle}>将选中的 {count} 项标记为</Text>
           {MASTERY_OPTIONS.map(o => (
             <Pressable key={o.value} style={styles.batchRow} onPress={() => onSelect(o.value)}>
-              <View style={[styles.menuDot, { backgroundColor: MASTERY_COLOR[o.value] }]} />
+              <View style={[styles.menuDot, { backgroundColor: masteryColor[o.value] }]} />
               <Text style={styles.menuItemText}>{o.label}</Text>
             </Pressable>
           ))}
@@ -202,6 +214,8 @@ function BatchMasteryModal({
 
 export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const {
     items, filteredItems, filter, isLoading,
     loadItems, removeItem, removeItems, updateMastery, updateMasteryMany, setFilter, resetFilter,
@@ -261,18 +275,18 @@ export default function LibraryScreen() {
     <View style={[styles.screen, { paddingTop: 0 }]}>
       {/* Search */}
       <View style={styles.searchRow}>
-        <Ionicons name="search" size={16} color={COLORS.textSecondary} style={styles.searchIcon} />
+        <Ionicons name="search" size={16} color={c.textSecondary} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
           placeholder="Search saved items…"
-          placeholderTextColor={COLORS.textSecondary}
+          placeholderTextColor={c.textSecondary}
           value={filter.searchQuery}
           onChangeText={q => setFilter({ searchQuery: q })}
           returnKeyType="search"
         />
         {filter.searchQuery.length > 0 && (
           <Pressable onPress={() => setFilter({ searchQuery: '' })}>
-            <Ionicons name="close-circle" size={16} color={COLORS.textSecondary} />
+            <Ionicons name="close-circle" size={16} color={c.textSecondary} />
           </Pressable>
         )}
       </View>
@@ -318,7 +332,7 @@ export default function LibraryScreen() {
                 setFilter({ sortBy: SORT_CYCLE[(idx + 1) % SORT_CYCLE.length].value });
               }}
             >
-              <Ionicons name="swap-vertical" size={12} color={COLORS.primary} />
+              <Ionicons name="swap-vertical" size={12} color={c.primary} />
               <Text style={styles.sortText}>
                 {SORT_CYCLE.find(s => s.value === filter.sortBy)?.label ?? 'Newest'}
               </Text>
@@ -332,7 +346,7 @@ export default function LibraryScreen() {
           </Pressable>
           <Text style={styles.countText}>已选 {selectedIds.size} 项</Text>
           <Pressable onPress={toggleSelectAll} style={styles.sortBtn}>
-            <Ionicons name={allSelected ? 'remove-circle-outline' : 'checkmark-done'} size={12} color={COLORS.primary} />
+            <Ionicons name={allSelected ? 'remove-circle-outline' : 'checkmark-done'} size={12} color={c.primary} />
             <Text style={styles.sortText}>{allSelected ? '取消全选' : '全选'}</Text>
           </Pressable>
         </View>
@@ -357,7 +371,7 @@ export default function LibraryScreen() {
         contentContainerStyle={{ padding: 16, paddingBottom: (selectionMode ? 80 : 0) + insets.bottom + 16 }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="bookmark-outline" size={56} color={COLORS.border} />
+            <Ionicons name="bookmark-outline" size={56} color={c.border} />
             <Text style={styles.emptyTitle}>No saved items</Text>
             <Text style={styles.emptySubtitle}>
               Tap and hold words in a transcript to save them
@@ -386,15 +400,15 @@ export default function LibraryScreen() {
             style={[styles.batchBtn, selectedIds.size === 0 && styles.batchBtnDisabled]}
             onPress={() => selectedIds.size > 0 && setBatchMasteryOpen(true)}
           >
-            <Ionicons name="pricetag-outline" size={18} color={COLORS.primary} />
+            <Ionicons name="pricetag-outline" size={18} color={c.primary} />
             <Text style={styles.batchBtnText}>标记</Text>
           </Pressable>
           <Pressable
             style={[styles.batchBtn, styles.batchDeleteBtn, selectedIds.size === 0 && styles.batchBtnDisabled]}
             onPress={handleBatchDelete}
           >
-            <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-            <Text style={[styles.batchBtnText, { color: COLORS.error }]}>删除 ({selectedIds.size})</Text>
+            <Ionicons name="trash-outline" size={18} color={c.error} />
+            <Text style={[styles.batchBtnText, { color: c.error }]}>删除 ({selectedIds.size})</Text>
           </Pressable>
         </View>
       )}
@@ -412,59 +426,61 @@ export default function LibraryScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  screen:          { flex: 1, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  screen:          { flex: 1, backgroundColor: c.background },
 
-  searchRow:       { flexDirection: 'row', alignItems: 'center', margin: 16, paddingHorizontal: 12, backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  searchRow:       { flexDirection: 'row', alignItems: 'center', margin: 16, paddingHorizontal: 12, backgroundColor: c.surface, borderRadius: 12, borderWidth: 1, borderColor: c.border },
   searchIcon:      { marginRight: 8 },
-  searchInput:     { flex: 1, paddingVertical: 10, fontSize: 14, color: COLORS.text },
+  searchInput:     { flex: 1, paddingVertical: 10, fontSize: 14, color: c.text },
 
   filterRow:       { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 8 },
-  chip:            { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  chipActive:      { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  chipText:        { fontSize: 12, color: COLORS.textSecondary, fontWeight: '500' },
+  chip:            { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  chipActive:      { backgroundColor: c.primary, borderColor: c.primary },
+  chipText:        { fontSize: 12, color: c.textSecondary, fontWeight: '500' },
   chipTextActive:  { color: '#fff' },
 
   countRow:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8 },
-  countText:       { fontSize: 12, color: COLORS.textSecondary },
+  countText:       { fontSize: 12, color: c.textSecondary },
   countActions:    { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  clearFilter:     { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
-  sortBtn:         { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  sortText:        { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  clearFilter:     { fontSize: 12, color: c.primary, fontWeight: '600' },
+  sortBtn:         { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  sortText:        { fontSize: 12, color: c.primary, fontWeight: '600' },
 
-  card:            { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
-  cardSelected:    { borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  card:            { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
+  cardSelected:    { borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
   selectDot:       { marginRight: 8, marginTop: 1 },
   cardTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
   cardTopIcons:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  cardText:        { fontSize: 16, fontWeight: '700', color: COLORS.text, flex: 1, marginRight: 8 },
-  cardContext:     { fontSize: 13, color: COLORS.textSecondary, fontStyle: 'italic', lineHeight: 19, marginBottom: 10 },
+  cardText:        { fontSize: 16, fontWeight: '700', color: c.text, flex: 1, marginRight: 8 },
+  cardContext:     { fontSize: 13, color: c.textSecondary, fontStyle: 'italic', lineHeight: 19, marginBottom: 10 },
   cardBottom:      { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  typeBadge:       { backgroundColor: COLORS.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  typeBadgeText:   { fontSize: 11, color: COLORS.textSecondary, fontWeight: '600' },
-  cardDate:        { fontSize: 11, color: COLORS.textSecondary },
-  nextReview:      { fontSize: 11, color: COLORS.textSecondary, flex: 1 },
+  typeBadge:       { backgroundColor: c.border, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  typeBadgeText:   { fontSize: 11, color: c.textSecondary, fontWeight: '600' },
+  cardDate:        { fontSize: 11, color: c.textSecondary },
+  nextReview:      { fontSize: 11, color: c.textSecondary, flex: 1 },
   masteryBadge:    { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   masteryText:     { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
 
-  menu:            { position: 'absolute', backgroundColor: COLORS.surface, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  menu:            { position: 'absolute', backgroundColor: c.surface, borderRadius: 10, borderWidth: 1, borderColor: c.border, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   menuItem:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 44 },
   menuDot:         { width: 9, height: 9, borderRadius: 5 },
-  menuItemText:    { fontSize: 14, color: COLORS.text, fontWeight: '500' },
+  menuItemText:    { fontSize: 14, color: c.text, fontWeight: '500' },
   menuCheck:       { marginLeft: 'auto' },
 
-  batchBar:        { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 10, backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border },
-  batchBtn:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  batchDeleteBtn:  { borderColor: COLORS.error, backgroundColor: COLORS.error + '14' },
+  batchBar:        { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 10, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+  batchBtn:        { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
+  batchDeleteBtn:  { borderColor: c.error, backgroundColor: c.error + '14' },
   batchBtnDisabled:{ opacity: 0.4 },
-  batchBtnText:    { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  batchBtnText:    { fontSize: 14, fontWeight: '700', color: c.primary },
 
   batchBackdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 40 },
-  batchCard:       { backgroundColor: COLORS.surface, borderRadius: 14, paddingVertical: 8 },
-  batchTitle:      { fontSize: 14, fontWeight: '700', color: COLORS.text, paddingHorizontal: 16, paddingVertical: 12 },
+  batchCard:       { backgroundColor: c.surface, borderRadius: 14, paddingVertical: 8 },
+  batchTitle:      { fontSize: 14, fontWeight: '700', color: c.text, paddingHorizontal: 16, paddingVertical: 12 },
   batchRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, height: 48 },
 
   empty:           { alignItems: 'center', paddingTop: 60 },
-  emptyTitle:      { fontSize: 18, fontWeight: '700', color: COLORS.text, marginTop: 16 },
-  emptySubtitle:   { fontSize: 14, color: COLORS.textSecondary, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
-});
+  emptyTitle:      { fontSize: 18, fontWeight: '700', color: c.text, marginTop: 16 },
+  emptySubtitle:   { fontSize: 14, color: c.textSecondary, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 },
+  });
+}

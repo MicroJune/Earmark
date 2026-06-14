@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Modal, View, Text, Pressable, FlatList, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Category } from '../types';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 
 interface Props {
   visible: boolean;
@@ -18,6 +19,8 @@ type Target = { id: number | null; name: string };
 export default function MoveToCategoryModal({
   visible, categories, currentCategoryId, onSelect, onClose,
 }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const targets: Target[] = [
     ...(currentCategoryId !== null ? [{ id: null, name: 'Uncategorized' }] : []),
     ...categories
@@ -42,7 +45,7 @@ export default function MoveToCategoryModal({
                   <Ionicons
                     name={item.id === null ? 'file-tray-outline' : 'folder-outline'}
                     size={20}
-                    color={COLORS.primary}
+                    color={c.primary}
                   />
                   <Text style={styles.rowText} numberOfLines={1}>{item.name}</Text>
                 </Pressable>
@@ -58,14 +61,16 @@ export default function MoveToCategoryModal({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32 },
-  dialog:     { backgroundColor: COLORS.surface, borderRadius: 14, padding: 20, maxHeight: '70%' },
-  title:      { fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 10 },
-  list:       { flexGrow: 0 },
-  empty:      { fontSize: 14, color: COLORS.textSecondary, paddingVertical: 12 },
-  rowItem:    { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
-  rowText:    { fontSize: 15, color: COLORS.text, flex: 1 },
-  cancelBtn:  { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, marginTop: 8 },
-  cancelText: { color: COLORS.textSecondary, fontSize: 15 },
-});
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+    backdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32 },
+    dialog:     { backgroundColor: c.surface, borderRadius: 14, padding: 20, maxHeight: '70%' },
+    title:      { fontSize: 17, fontWeight: '700', color: c.text, marginBottom: 10 },
+    list:       { flexGrow: 0 },
+    empty:      { fontSize: 14, color: c.textSecondary, paddingVertical: 12 },
+    rowItem:    { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: c.border },
+    rowText:    { fontSize: 15, color: c.text, flex: 1 },
+    cancelBtn:  { alignSelf: 'flex-end', paddingHorizontal: 14, paddingVertical: 8, marginTop: 8 },
+    cancelText: { color: c.textSecondary, fontSize: 15 },
+  });
+}

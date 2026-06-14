@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 import { PageIntro, SectionTitle, StatusBadge, type Tone } from './ui';
 import { getUpdateInfo, checkForUpdate, reloadApp, type CheckResult } from '../../services/updates';
 
@@ -11,6 +12,8 @@ function shortId(id: string | null): string {
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -26,6 +29,8 @@ const RESULT_BADGE: Record<Exclude<CheckResult['status'], 'error'>, { tone: Tone
 };
 
 export default function UpdatesPage() {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [info] = useState(getUpdateInfo);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
@@ -87,7 +92,7 @@ export default function UpdatesPage() {
 
       {result?.status === 'downloaded' && (
         <Pressable style={styles.reloadBtn} onPress={() => { void reloadApp(); }}>
-          <Ionicons name="refresh" size={18} color={COLORS.primary} />
+          <Ionicons name="refresh" size={18} color={c.primary} />
           <Text style={styles.reloadBtnText}>立即重启应用</Text>
         </Pressable>
       )}
@@ -95,20 +100,22 @@ export default function UpdatesPage() {
   );
 }
 
-const styles = StyleSheet.create({
-  card:        { backgroundColor: COLORS.surface, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 6 },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  card:        { backgroundColor: c.surface, borderRadius: 14, paddingHorizontal: 16, paddingVertical: 6 },
   infoRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, gap: 12 },
-  infoLabel:   { fontSize: 13, color: COLORS.textSecondary },
-  infoValue:   { fontSize: 13, color: COLORS.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
+  infoLabel:   { fontSize: 13, color: c.textSecondary },
+  infoValue:   { fontSize: 13, color: c.text, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
 
-  note:        { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18, marginTop: 10 },
+  note:        { fontSize: 12, color: c.textSecondary, lineHeight: 18, marginTop: 10 },
 
-  checkBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14 },
+  checkBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: c.primary, borderRadius: 12, paddingVertical: 14 },
   checkBtnDisabled: { opacity: 0.5 },
   checkBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  errText:      { fontSize: 12, color: COLORS.textSecondary, marginTop: 6, lineHeight: 18 },
+  errText:      { fontSize: 12, color: c.textSecondary, marginTop: 6, lineHeight: 18 },
 
-  reloadBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderColor: COLORS.primary, borderRadius: 12, paddingVertical: 12, marginTop: 12 },
-  reloadBtnText: { color: COLORS.primary, fontSize: 15, fontWeight: '700' },
-});
+  reloadBtn:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, marginTop: 12 },
+  reloadBtnText: { color: c.primary, fontSize: 15, fontWeight: '700' },
+  });
+}

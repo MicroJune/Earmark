@@ -1,28 +1,30 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, Pressable, TextInput, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 
 // ─── Shared building blocks for the Settings pages ────────────────────────────
 
 export type Tone = 'ok' | 'warn' | 'muted';
 
-const TONE_COLOR: Record<Tone, string> = {
-  ok: COLORS.success,
-  warn: COLORS.warning,
-  muted: COLORS.textSecondary,
-};
+function toneColor(c: Palette, tone: Tone): string {
+  return tone === 'ok' ? c.success : tone === 'warn' ? c.warning : c.textSecondary;
+}
 
 /** Small status pill: "✓ 已就绪" / "⚠ 还差 1 步:…" */
 export function StatusBadge({ tone, text }: { tone: Tone; text: string }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  const color = toneColor(c, tone);
   return (
-    <View style={[ui.badge, { backgroundColor: TONE_COLOR[tone] + '1A' }]}>
+    <View style={[styles.badge, { backgroundColor: color + '1A' }]}>
       <Ionicons
         name={tone === 'ok' ? 'checkmark-circle' : tone === 'warn' ? 'alert-circle' : 'ellipse-outline'}
         size={13}
-        color={TONE_COLOR[tone]}
+        color={color}
       />
-      <Text style={[ui.badgeText, { color: TONE_COLOR[tone] }]}>{text}</Text>
+      <Text style={[styles.badgeText, { color }]}>{text}</Text>
     </View>
   );
 }
@@ -33,31 +35,39 @@ export function HubRow({
 }: {
   icon: string; title: string; status: string; tone: Tone; onPress: () => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
-    <Pressable style={ui.hubRow} onPress={onPress}>
-      <View style={ui.hubIcon}>
-        <Ionicons name={icon as any} size={20} color={COLORS.primary} />
+    <Pressable style={styles.hubRow} onPress={onPress}>
+      <View style={styles.hubIcon}>
+        <Ionicons name={icon as any} size={20} color={c.primary} />
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={ui.hubTitle}>{title}</Text>
-        <Text style={[ui.hubStatus, { color: TONE_COLOR[tone] }]}>{status}</Text>
+        <Text style={styles.hubTitle}>{title}</Text>
+        <Text style={[styles.hubStatus, { color: toneColor(c, tone) }]}>{status}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color={COLORS.textSecondary} />
+      <Ionicons name="chevron-forward" size={18} color={c.textSecondary} />
     </Pressable>
   );
 }
 
 /** Page intro — one plain-language sentence about what this page configures. */
 export function PageIntro({ children }: { children: string }) {
-  return <Text style={ui.intro}>{children}</Text>;
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  return <Text style={styles.intro}>{children}</Text>;
 }
 
 export function SectionTitle({ children }: { children: string }) {
-  return <Text style={ui.sectionTitle}>{children}</Text>;
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  return <Text style={styles.sectionTitle}>{children}</Text>;
 }
 
 export function Hint({ children }: { children: React.ReactNode }) {
-  return <Text style={ui.hint}>{children}</Text>;
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
+  return <Text style={styles.hint}>{children}</Text>;
 }
 
 /** Two-to-three option segmented control. */
@@ -68,15 +78,17 @@ export function Segmented<T extends string>({
   value: T;
   onChange: (v: T) => void;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   return (
-    <View style={ui.segmentRow}>
+    <View style={styles.segmentRow}>
       {options.map(o => (
         <Pressable
           key={o.value}
-          style={[ui.segmentBtn, value === o.value && ui.segmentBtnActive]}
+          style={[styles.segmentBtn, value === o.value && styles.segmentBtnActive]}
           onPress={() => onChange(o.value)}
         >
-          <Text style={[ui.segmentText, value === o.value && ui.segmentTextActive]}>{o.label}</Text>
+          <Text style={[styles.segmentText, value === o.value && styles.segmentTextActive]}>{o.label}</Text>
         </Pressable>
       ))}
     </View>
@@ -96,6 +108,8 @@ export function KeyInput({
   onSave: (v: string) => void | Promise<void>;
   hint?: string;
 }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [text, setText] = useState(value);
   const [show, setShow] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -121,14 +135,14 @@ export function KeyInput({
 
   return (
     <View style={{ marginBottom: 12 }}>
-      <Text style={ui.label}>{label}</Text>
-      <View style={ui.keyRow}>
+      <Text style={styles.label}>{label}</Text>
+      <View style={styles.keyRow}>
         <TextInput
-          style={ui.keyInput}
+          style={styles.keyInput}
           value={text}
           onChangeText={setText}
           placeholder={placeholder}
-          placeholderTextColor={COLORS.textSecondary}
+          placeholderTextColor={c.textSecondary}
           secureTextEntry={!show}
           autoCapitalize="none"
           autoCorrect={false}
@@ -136,38 +150,40 @@ export function KeyInput({
           onSubmitEditing={commit}
           returnKeyType="done"
         />
-        <Pressable onPress={() => setShow(s => !s)} hitSlop={8} style={ui.eyeBtn}>
-          <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={18} color={COLORS.textSecondary} />
+        <Pressable onPress={() => setShow(s => !s)} hitSlop={8} style={styles.eyeBtn}>
+          <Ionicons name={show ? 'eye-off-outline' : 'eye-outline'} size={18} color={c.textSecondary} />
         </Pressable>
       </View>
-      {saved && <Text style={ui.savedNote}>✓ 已自动保存</Text>}
-      {hint ? <Text style={ui.hint}>{hint}</Text> : null}
+      {saved && <Text style={styles.savedNote}>✓ 已自动保存</Text>}
+      {hint ? <Text style={styles.hint}>{hint}</Text> : null}
     </View>
   );
 }
 
-export const ui = StyleSheet.create({
-  badge:        { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
-  badgeText:    { fontSize: 12, fontWeight: '600' },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+    badge:        { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
+    badgeText:    { fontSize: 12, fontWeight: '600' },
 
-  hubRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
-  hubIcon:      { width: 38, height: 38, borderRadius: 10, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
-  hubTitle:     { fontSize: 15, fontWeight: '600', color: COLORS.text },
-  hubStatus:    { fontSize: 12, marginTop: 2, fontWeight: '500' },
+    hubRow:       { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
+    hubIcon:      { width: 38, height: 38, borderRadius: 10, backgroundColor: c.primaryLight, justifyContent: 'center', alignItems: 'center' },
+    hubTitle:     { fontSize: 15, fontWeight: '600', color: c.text },
+    hubStatus:    { fontSize: 12, marginTop: 2, fontWeight: '500' },
 
-  intro:        { fontSize: 13, color: COLORS.textSecondary, lineHeight: 19, marginBottom: 16 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary, marginTop: 18, marginBottom: 8 },
-  hint:         { fontSize: 12, color: COLORS.textSecondary, lineHeight: 18, marginTop: 6 },
-  label:        { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 6 },
+    intro:        { fontSize: 13, color: c.textSecondary, lineHeight: 19, marginBottom: 16 },
+    sectionTitle: { fontSize: 13, fontWeight: '700', color: c.textSecondary, marginTop: 18, marginBottom: 8 },
+    hint:         { fontSize: 12, color: c.textSecondary, lineHeight: 18, marginTop: 6 },
+    label:        { fontSize: 13, fontWeight: '600', color: c.textSecondary, marginBottom: 6 },
 
-  segmentRow:   { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  segmentBtn:   { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface, alignItems: 'center' },
-  segmentBtnActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  segmentText:  { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
-  segmentTextActive: { color: COLORS.primary },
+    segmentRow:   { flexDirection: 'row', gap: 8, marginBottom: 8 },
+    segmentBtn:   { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface, alignItems: 'center' },
+    segmentBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    segmentText:  { fontSize: 13, fontWeight: '600', color: c.textSecondary },
+    segmentTextActive: { color: c.primary },
 
-  keyRow:       { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, backgroundColor: COLORS.surface },
-  keyInput:     { flex: 1, padding: 12, fontSize: 14, color: COLORS.text },
-  eyeBtn:       { paddingHorizontal: 12 },
-  savedNote:    { fontSize: 12, color: COLORS.success, marginTop: 4, fontWeight: '600' },
-});
+    keyRow:       { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: c.border, borderRadius: 10, backgroundColor: c.surface },
+    keyInput:     { flex: 1, padding: 12, fontSize: 14, color: c.text },
+    eyeBtn:       { paddingHorizontal: 12 },
+    savedNote:    { fontSize: 12, color: c.success, marginTop: 4, fontWeight: '600' },
+  });
+}

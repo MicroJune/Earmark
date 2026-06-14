@@ -9,10 +9,20 @@ import { recoverInterruptedTranscriptions } from './src/db/queries/audioFiles';
 import { setupAudioMode } from './src/services/audio';
 import { checkForUpdate, reloadApp } from './src/services/updates';
 import { AppNavigation } from './src/navigation';
-import { COLORS } from './src/constants/colors';
 import { initLogger, log } from './src/utils/logger';
+import { ThemeProvider, useTheme, useThemeControl } from './src/theme/ThemeProvider';
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
+function AppInner() {
+  const c = useTheme();
+  const { scheme } = useThemeControl();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,18 +67,23 @@ export default function App() {
     return () => { cancelled = true; };
   }, [ready, error]);
 
+  // Status bar icons must contrast with the chrome: light icons on dark.
+  const statusStyle = scheme === 'dark' ? 'light' : 'dark';
+
   if (!ready) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <StatusBar style={statusStyle} />
+        <ActivityIndicator size="large" color={c.primary} />
       </View>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
+      <View style={[styles.center, { backgroundColor: c.background }]}>
+        <StatusBar style={statusStyle} />
+        <Text style={[styles.errorText, { color: c.error }]}>{error}</Text>
       </View>
     );
   }
@@ -76,7 +91,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
+        <StatusBar style={statusStyle} />
         <AppNavigation />
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -85,6 +100,6 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root:      { flex: 1 },
-  center:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  errorText: { color: '#EF4444', fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
+  center:    { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  errorText: { fontSize: 14, textAlign: 'center', paddingHorizontal: 24 },
 });

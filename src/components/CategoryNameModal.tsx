@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Modal, View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 
 interface Props {
   visible: boolean;
@@ -14,6 +15,8 @@ interface Props {
 export default function CategoryNameModal({
   visible, title, initialName, existingNames, onSubmit, onClose,
 }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -51,7 +54,7 @@ export default function CategoryNameModal({
             value={name}
             onChangeText={t => { setName(t); setError(null); }}
             placeholder="Category name"
-            placeholderTextColor={COLORS.textSecondary}
+            placeholderTextColor={c.textSecondary}
             autoFocus
             maxLength={40}
             returnKeyType="done"
@@ -72,14 +75,16 @@ export default function CategoryNameModal({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32 },
-  dialog:    { backgroundColor: COLORS.surface, borderRadius: 14, padding: 20 },
-  title:     { fontSize: 17, fontWeight: '700', color: COLORS.text, marginBottom: 14 },
-  input:     { borderWidth: 1, borderColor: COLORS.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: COLORS.text },
-  error:     { color: COLORS.error, fontSize: 12, marginTop: 6 },
-  actions:   { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 },
-  btn:       { paddingHorizontal: 14, paddingVertical: 8 },
-  btnCancel: { color: COLORS.textSecondary, fontSize: 15 },
-  btnSave:   { color: COLORS.primary, fontSize: 15, fontWeight: '700' },
-});
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+    backdrop:  { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 32 },
+    dialog:    { backgroundColor: c.surface, borderRadius: 14, padding: 20 },
+    title:     { fontSize: 17, fontWeight: '700', color: c.text, marginBottom: 14 },
+    input:     { borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: c.text },
+    error:     { color: c.error, fontSize: 12, marginTop: 6 },
+    actions:   { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 },
+    btn:       { paddingHorizontal: 14, paddingVertical: 8 },
+    btnCancel: { color: c.textSecondary, fontSize: 15 },
+    btnSave:   { color: c.primary, fontSize: 15, fontWeight: '700' },
+  });
+}

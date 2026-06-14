@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, Modal, Pressable, ScrollView,
   Alert, StyleSheet, Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../constants/colors';
+import type { Palette } from '../constants/colors';
 import { getApiKeys, saveApiKeys, type ApiKeys } from '../services/config';
 import {
   getSettings, setTranscriptionEngine, setWhisperModel, setModelMirror,
@@ -28,6 +28,8 @@ import {
 import { DEFAULT_VOLCANO_VOICE, VOLCANO_VOICES } from '../services/volcano';
 import { useLibraryStore } from '../store/libraryStore';
 import { useAudioFilesStore } from '../store/audioFilesStore';
+import { useTheme, useThemeControl } from '../theme/ThemeProvider';
+import type { ThemeMode } from '../services/settings';
 import { HubRow, type Tone } from './settings/ui';
 import EnginePage from './settings/EnginePage';
 import TtsPage from './settings/TtsPage';
@@ -55,8 +57,11 @@ const PAGE_TITLES: Record<Page, string> = {
 export default function SettingsModal({
   visible, onClose,
 }: { visible: boolean; onClose: () => void }) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const insets = useSafeAreaInsets();
   const [page, setPage] = useState<Page>('home');
+  const { mode: themeMode, setMode: setThemeMode } = useThemeControl();
 
   // Transcription
   const [engine, setEngine] = useState<TranscriptionEngine>('local');
@@ -325,19 +330,45 @@ export default function SettingsModal({
         <View style={styles.modalHeader}>
           {page !== 'home' && (
             <Pressable onPress={handleBack} hitSlop={8} style={{ marginRight: 10 }}>
-              <Ionicons name="chevron-back" size={24} color={COLORS.primary} />
+              <Ionicons name="chevron-back" size={24} color={c.primary} />
             </Pressable>
           )}
           <Text style={styles.modalTitle}>{PAGE_TITLES[page]}</Text>
           <View style={{ flex: 1 }} />
           <Pressable onPress={onClose} hitSlop={8}>
-            <Ionicons name="close" size={24} color={COLORS.text} />
+            <Ionicons name="close" size={24} color={c.text} />
           </Pressable>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
           {page === 'home' && (
             <>
+              {/* 外观:三种主题模式 */}
+              <View style={styles.appearanceRow}>
+                <View style={styles.reminderIcon}>
+                  <Ionicons name="contrast-outline" size={20} color={c.primary} />
+                </View>
+                <Text style={styles.appearanceTitle}>外观</Text>
+                <View style={styles.appearanceChips}>
+                  {([
+                    { label: '跟随系统', value: 'system' },
+                    { label: '白天', value: 'light' },
+                    { label: '夜晚', value: 'dark' },
+                  ] as Array<{ label: string; value: ThemeMode }>).map(o => {
+                    const active = themeMode === o.value;
+                    return (
+                      <Pressable
+                        key={o.value}
+                        style={[styles.timeChip, active && styles.timeChipActive]}
+                        onPress={() => setThemeMode(o.value)}
+                      >
+                        <Text style={[styles.timeChipText, active && styles.timeChipTextActive]}>{o.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
               <HubRow
                 icon="mic-outline"
                 title="转写引擎"
@@ -363,7 +394,7 @@ export default function SettingsModal({
               {/* 每日提醒:简单项,直接内联 */}
               <View style={styles.reminderRow}>
                 <View style={styles.reminderIcon}>
-                  <Ionicons name="alarm-outline" size={20} color={COLORS.primary} />
+                  <Ionicons name="alarm-outline" size={20} color={c.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.reminderTitle}>每日复习提醒</Text>
@@ -377,7 +408,7 @@ export default function SettingsModal({
                   value={reminder.enabled}
                   disabled={!remindersSupported}
                   onValueChange={v => applyReminder({ ...reminder, enabled: v })}
-                  trackColor={{ true: COLORS.primary }}
+                  trackColor={{ true: c.primary }}
                 />
               </View>
               {reminder.enabled && (
@@ -500,20 +531,26 @@ export default function SettingsModal({
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const styles = StyleSheet.create({
-  modal:           { flex: 1, padding: 24, backgroundColor: COLORS.background },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  modal:           { flex: 1, padding: 24, backgroundColor: c.background },
   modalHeader:     { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  modalTitle:      { fontSize: 20, fontWeight: '700', color: COLORS.text },
+  modalTitle:      { fontSize: 20, fontWeight: '700', color: c.text },
 
-  reminderRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
-  reminderIcon:    { width: 38, height: 38, borderRadius: 10, backgroundColor: COLORS.primaryLight, justifyContent: 'center', alignItems: 'center' },
-  reminderTitle:   { fontSize: 15, fontWeight: '600', color: COLORS.text },
-  reminderSubtitle:{ fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  appearanceRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
+  appearanceTitle: { fontSize: 15, fontWeight: '600', color: c.text },
+  appearanceChips: { flexDirection: 'row', gap: 8, flex: 1, justifyContent: 'flex-end' },
+
+  reminderRow:     { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 10 },
+  reminderIcon:    { width: 38, height: 38, borderRadius: 10, backgroundColor: c.primaryLight, justifyContent: 'center', alignItems: 'center' },
+  reminderTitle:   { fontSize: 15, fontWeight: '600', color: c.text },
+  reminderSubtitle:{ fontSize: 12, color: c.textSecondary, marginTop: 2 },
   timeRow:         { flexDirection: 'row', gap: 8, marginBottom: 10, marginTop: -2, paddingLeft: 50 },
-  timeChip:        { borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
-  timeChipActive:  { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
-  timeChipText:    { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600' },
-  timeChipTextActive: { color: COLORS.primary },
+  timeChip:        { borderWidth: 1, borderColor: c.border, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  timeChipActive:  { borderColor: c.primary, backgroundColor: c.primaryLight },
+  timeChipText:    { fontSize: 12, color: c.textSecondary, fontWeight: '600' },
+  timeChipTextActive: { color: c.primary },
 
-  footerNote:      { fontSize: 12, color: COLORS.textSecondary, textAlign: 'center', marginTop: 16 },
-});
+  footerNote:      { fontSize: 12, color: c.textSecondary, textAlign: 'center', marginTop: 16 },
+  });
+}

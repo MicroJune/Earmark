@@ -1,9 +1,10 @@
-import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useMemo } from 'react';
 import {
   Animated, StyleSheet, View,
   type NativeSyntheticEvent, type NativeScrollEvent,
 } from 'react-native';
-import { COLORS } from '../constants/colors';
+import { useTheme } from '../theme/ThemeProvider';
+import type { Palette } from '../constants/colors';
 
 // A thin, accurate scroll-position indicator. The native scrollbar of a
 // virtualized list (FlashList / FlatList) is estimated from measured items and
@@ -25,6 +26,8 @@ export interface ScrollIndicatorHandle {
 
 const ScrollIndicator = forwardRef<ScrollIndicatorHandle, { rightInset?: number }>(
   ({ rightInset = 2 }, ref) => {
+    const c = useTheme();
+    const styles = useMemo(() => makeStyles(c), [c]);
     const trackH = useRef(0);
     const top = useRef(new Animated.Value(0)).current;
     const height = useRef(new Animated.Value(MIN_THUMB)).current;
@@ -75,17 +78,19 @@ ScrollIndicator.displayName = 'ScrollIndicator';
 
 export default ScrollIndicator;
 
-const styles = StyleSheet.create({
-  track: {
-    position: 'absolute',
-    top: 4,
-    bottom: 4,
-    width: 3,
-  },
-  thumb: {
-    position: 'absolute',
-    width: 3,
-    borderRadius: 2,
-    backgroundColor: COLORS.textSecondary,
-  },
-});
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+    track: {
+      position: 'absolute',
+      top: 4,
+      bottom: 4,
+      width: 3,
+    },
+    thumb: {
+      position: 'absolute',
+      width: 3,
+      borderRadius: 2,
+      backgroundColor: c.textSecondary,
+    },
+  });
+}

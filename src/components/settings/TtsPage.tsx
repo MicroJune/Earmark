@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS } from '../../constants/colors';
+import type { Palette } from '../../constants/colors';
+import { useTheme } from '../../theme/ThemeProvider';
 import type { TtsVoice, TtsProvider } from '../../services/tts';
 import { VOLCANO_VOICES } from '../../services/volcano';
 import { PageIntro, SectionTitle, Hint, Segmented, KeyInput } from './ui';
@@ -27,6 +28,8 @@ export default function TtsPage({
   provider, onProvider, volcKey, onSaveVolcKey,
   rate, onRate, voices, voice, onVoice, volcVoice, onVolcVoice, sampling,
 }: Props) {
+  const c = useTheme();
+  const styles = useMemo(() => makeStyles(c), [c]);
   const hasVolcKey = volcKey.trim().length > 0;
 
   return (
@@ -50,7 +53,7 @@ export default function TtsPage({
           </Hint>
           {hasVolcKey ? (
             <View style={styles.keyOkRow}>
-              <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
+              <Ionicons name="checkmark-circle" size={16} color={c.success} />
               <Text style={styles.keyOkText}>已配置火山引擎 Key(与云端转写共用,无需重复填写)</Text>
             </View>
           ) : (
@@ -85,10 +88,10 @@ export default function TtsPage({
             onPress={() => onVolcVoice(v.id)}
           >
             {sampling === v.id
-              ? <ActivityIndicator size="small" color={COLORS.primary} />
-              : <Ionicons name="volume-medium-outline" size={16} color={COLORS.primary} />}
+              ? <ActivityIndicator size="small" color={c.primary} />
+              : <Ionicons name="volume-medium-outline" size={16} color={c.primary} />}
             <Text style={[styles.voiceName, { flex: 1 }]}>{v.label}</Text>
-            {volcVoice === v.id && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
+            {volcVoice === v.id && <Ionicons name="checkmark-circle" size={18} color={c.primary} />}
           </Pressable>
         ))
       ) : (
@@ -97,9 +100,9 @@ export default function TtsPage({
             style={[styles.voiceRow, voice === null && styles.voiceRowActive]}
             onPress={() => onVoice(null)}
           >
-            <Ionicons name="volume-medium-outline" size={16} color={COLORS.primary} />
+            <Ionicons name="volume-medium-outline" size={16} color={c.primary} />
             <Text style={[styles.voiceName, { flex: 1 }]}>系统默认</Text>
-            {voice === null && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
+            {voice === null && <Ionicons name="checkmark-circle" size={18} color={c.primary} />}
           </Pressable>
           {voices.slice(0, 12).map(v => (
             <Pressable
@@ -107,14 +110,14 @@ export default function TtsPage({
               style={[styles.voiceRow, voice === v.identifier && styles.voiceRowActive]}
               onPress={() => onVoice(v.identifier)}
             >
-              <Ionicons name="volume-medium-outline" size={16} color={COLORS.primary} />
+              <Ionicons name="volume-medium-outline" size={16} color={c.primary} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.voiceName} numberOfLines={1}>{v.name}</Text>
                 <Text style={styles.voiceMeta}>
                   {v.language}{v.enhanced ? ' · 增强版' : ''}
                 </Text>
               </View>
-              {voice === v.identifier && <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />}
+              {voice === v.identifier && <Ionicons name="checkmark-circle" size={18} color={c.primary} />}
             </Pressable>
           ))}
           {voices.length <= 1 && (
@@ -130,12 +133,14 @@ export default function TtsPage({
   );
 }
 
-const styles = StyleSheet.create({
-  keyOkRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.success + '14', borderRadius: 10, padding: 12, marginTop: 8, marginBottom: 4 },
-  keyOkText: { flex: 1, fontSize: 12, color: COLORS.text, lineHeight: 17 },
+function makeStyles(c: Palette) {
+  return StyleSheet.create({
+  keyOkRow:  { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: c.success + '14', borderRadius: 10, padding: 12, marginTop: 8, marginBottom: 4 },
+  keyOkText: { flex: 1, fontSize: 12, color: c.text, lineHeight: 17 },
 
-  voiceRow:       { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.surface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6, borderWidth: 1.5, borderColor: 'transparent' },
-  voiceRowActive: { borderColor: COLORS.primary },
-  voiceName:      { fontSize: 13, fontWeight: '600', color: COLORS.text },
-  voiceMeta:      { fontSize: 11, color: COLORS.textSecondary, marginTop: 1 },
-});
+  voiceRow:       { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 6, borderWidth: 1.5, borderColor: 'transparent' },
+  voiceRowActive: { borderColor: c.primary },
+  voiceName:      { fontSize: 13, fontWeight: '600', color: c.text },
+  voiceMeta:      { fontSize: 11, color: c.textSecondary, marginTop: 1 },
+  });
+}
