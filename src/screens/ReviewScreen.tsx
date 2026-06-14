@@ -12,7 +12,7 @@ import { toggleSavedItemPreview, stopPreview } from '../services/audio';
 import { usePreviewStore } from '../store/previewStore';
 import { playSavedItemPronunciation } from '../services/pronunciation';
 import { getReviewStats, type ReviewStats } from '../db/queries/reviewLog';
-import { shuffle, isDue, estimateMinutes } from '../utils/spacedRepetition';
+import { shuffle, isDue, estimateMinutes, matchAnswer } from '../utils/spacedRepetition';
 import type { MasteryLevel, SavedItem, ReviewGrade } from '../types';
 
 // ─── Mastery badge ────────────────────────────────────────────────────────────
@@ -103,19 +103,42 @@ function SpeakWordButton({ item }: { item: SavedItem }) {
   );
 }
 
-// ─── Flashcard mode (4-grade self-rating) ─────────────────────────────────────
+// ─── Relearn badge ────────────────────────────────────────────────────────────
+// Shown when a card was answered "重来" earlier this session and requeued.
 
-function FlashcardMode({ item, onGrade, onSkip }: {
-  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void;
+function RelearnBadge({ show }: { show?: boolean }) {
+  if (!show) return null;
+  return (
+    <View style={styles.relearnBadge}>
+      <Ionicons name="refresh" size={12} color={COLORS.warning} />
+      <Text style={styles.relearnText}>再练一次</Text>
+    </View>
+  );
+}
+
+// ─── Flashcard mode (listening-first recall, 4-grade self-rating) ─────────────
+// Goal: "hear it → instantly grasp the meaning." The original clip auto-plays
+// when the card appears; the learner recalls the Chinese meaning before
+// revealing. The reveal leads with the meaning, not the English text.
+
+function FlashcardMode({ item, onGrade, onSkip, isRelearn }: {
+  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
-  // Reset reveal + stop any audio when the item changes
-  useEffect(() => { setRevealed(false); return () => stopPreview(); }, [item.id]);
+  // Reset reveal and auto-play the original clip when the item changes.
+  useEffect(() => {
+    setRevealed(false);
+    toggleSavedItemPreview(`review-${item.id}`, item).catch(() => {});
+    return () => stopPreview();
+  }, [item.id]);
 
   return (
     <View style={styles.modeContainer}>
       <View style={styles.card}>
-        <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        <View style={styles.cardTopRow}>
+          <RelearnBadge show={isRelearn} />
+          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        </View>
         <Text style={styles.cardPhrase}>{item.text}</Text>
         <View style={styles.audioRow}>
           <HearOriginalButton item={item} />
@@ -125,6 +148,9 @@ function FlashcardMode({ item, onGrade, onSkip }: {
         {revealed ? (
           <>
             <View style={styles.divider} />
+            {item.enrichment?.translationZh
+              ? <Text style={styles.meaningZh}>{item.enrichment.translationZh}</Text>
+              : <Text style={styles.meaningMissing}>这条还没有中文释义 — 可在词条详情里补充</Text>}
             <Text style={styles.cardContext}>"{item.contextSentence}"</Text>
             {item.note && (
               <View style={styles.noteBlock}>
@@ -134,21 +160,20 @@ function FlashcardMode({ item, onGrade, onSkip }: {
             )}
             {item.enrichment && (
               <View style={styles.enrichBlock}>
-                <Text style={styles.enrichZh}>{item.enrichment.translationZh}</Text>
                 <Text style={styles.enrichDef}>{item.enrichment.definitionEn}</Text>
                 {item.enrichment.synonyms.length > 0 && (
                   <Text style={styles.enrichSyn}>≈ {item.enrichment.synonyms.join(' · ')}</Text>
                 )}
               </View>
             )}
-            <Text style={styles.gradePrompt}>刚才回忆得怎么样?</Text>
+            <Text style={styles.gradePrompt}>刚才听懂 / 想起意思了吗?</Text>
             <GradeBar onGrade={onGrade} />
           </>
         ) : (
           <>
-            <Text style={styles.recallHint}>先在心里回忆它的意思,再揭晓</Text>
+            <Text style={styles.recallHint}>先听原声,在心里回忆它的中文意思,再揭晓</Text>
             <Pressable style={styles.revealBtn} onPress={() => setRevealed(true)}>
-              <Text style={styles.revealBtnText}>揭晓答案</Text>
+              <Text style={styles.revealBtnText}>揭晓意思</Text>
             </Pressable>
             <Pressable style={styles.skipLink} onPress={onSkip}>
               <Text style={styles.skipLinkText}>跳过</Text>
@@ -162,8 +187,8 @@ function FlashcardMode({ item, onGrade, onSkip }: {
 
 // ─── Fill-in-blank mode (typed production → graded) ───────────────────────────
 
-function FillInBlankMode({ item, onGrade, onSkip }: {
-  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void;
+function FillInBlankMode({ item, onGrade, onSkip, isRelearn }: {
+  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
   const [answer, setAnswer] = useState('');
   const [checked, setChecked] = useState(false);
@@ -178,14 +203,21 @@ function FillInBlankMode({ item, onGrade, onSkip }: {
     ? '_'.repeat(item.text.length)
     : blankedCandidate;
 
-  const isCorrect = answer.trim().toLowerCase() === item.text.trim().toLowerCase();
+  // Fuzzy match so a stray comma / capital / single typo isn't a hard fail.
+  const match = matchAnswer(answer, item.text);
+  const isCorrect = match === 'exact' || match === 'close';
 
-  const handleNext = () => onGrade(isCorrect ? 'good' : 'again');
+  // exact → good · close (typo) → hard · wrong → again
+  const handleNext = () =>
+    onGrade(match === 'exact' ? 'good' : match === 'close' ? 'hard' : 'again');
 
   return (
     <View style={styles.modeContainer}>
       <View style={styles.card}>
-        <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        <View style={styles.cardTopRow}>
+          <RelearnBadge show={isRelearn} />
+          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        </View>
         <Text style={styles.modeTag}>拼出空缺的词</Text>
         <Text style={styles.blankSentence}>{blanked}</Text>
 
@@ -212,7 +244,9 @@ function FillInBlankMode({ item, onGrade, onSkip }: {
               color={isCorrect ? COLORS.success : COLORS.error}
             />
             <Text style={[styles.feedbackText, { color: isCorrect ? COLORS.success : COLORS.error }]}>
-              {isCorrect ? '正确!' : `答案: ${item.text}`}
+              {match === 'exact' ? '正确!'
+                : match === 'close' ? `差一点 — 正确写法: ${item.text}`
+                : `答案: ${item.text}`}
             </Text>
           </View>
         )}
@@ -240,8 +274,8 @@ function FillInBlankMode({ item, onGrade, onSkip }: {
 
 // ─── Listen & Identify mode (multiple choice → graded) ────────────────────────
 
-function ListenIdentifyMode({ item, onGrade, onSkip }: {
-  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void;
+function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
+  item: SavedItem; onGrade: (g: ReviewGrade) => void; onSkip: () => void; isRelearn?: boolean;
 }) {
   const allItems = useLibraryStore(s => s.items);
   const key = `li-${item.id}`;
@@ -249,13 +283,20 @@ function ListenIdentifyMode({ item, onGrade, onSkip }: {
   const [playError, setPlayError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
 
+  // Distractors should resemble the answer (same type, similar length/word
+  // count) so the choice is a real discrimination, not a giveaway. We fall back
+  // to any other items if there aren't enough similar ones.
   const choices = useMemo(() => {
-    const distractors = shuffle(
-      allItems
-        .map(i => i.text)
-        .filter((t, idx, arr) => arr.indexOf(t) === idx)
-        .filter(t => t.toLowerCase() !== item.text.toLowerCase())
-    ).slice(0, 3);
+    const others = allItems
+      .filter((it, idx, arr) => arr.findIndex(x => x.text === it.text) === idx)
+      .filter(it => it.text.toLowerCase() !== item.text.toLowerCase());
+    const wordCount = (t: string) => t.trim().split(/\s+/).length;
+    const targetWords = wordCount(item.text);
+    const similar = others.filter(
+      it => it.type === item.type && Math.abs(wordCount(it.text) - targetWords) <= 1
+    );
+    const pool = similar.length >= 3 ? similar : others;
+    const distractors = shuffle(pool.map(i => i.text)).slice(0, 3);
     return shuffle([item.text, ...distractors]);
   }, [item.id, allItems]);
 
@@ -274,7 +315,10 @@ function ListenIdentifyMode({ item, onGrade, onSkip }: {
   return (
     <View style={styles.modeContainer}>
       <View style={styles.card}>
-        <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        <View style={styles.cardTopRow}>
+          <RelearnBadge show={isRelearn} />
+          <View style={[styles.masteryDot, { backgroundColor: MASTERY_COLOR[item.mastery] }]} />
+        </View>
 
         <Pressable style={styles.listenBtn} onPress={() => toggleSavedItemPreview(key, item).catch(() => {})}>
           {state === 'loading'
@@ -400,13 +444,13 @@ export default function ReviewScreen() {
               </Pressable>
             </View>
             {card.mode === 'flashcard' && (
-              <FlashcardMode key={card.item.id} item={card.item} onGrade={grade} onSkip={skipItem} />
+              <FlashcardMode key={`${card.item.id}-${session!.currentIndex}`} item={card.item} onGrade={grade} onSkip={skipItem} isRelearn={card.isRelearn} />
             )}
             {card.mode === 'fill-in-blank' && (
-              <FillInBlankMode key={card.item.id} item={card.item} onGrade={grade} onSkip={skipItem} />
+              <FillInBlankMode key={`${card.item.id}-${session!.currentIndex}`} item={card.item} onGrade={grade} onSkip={skipItem} isRelearn={card.isRelearn} />
             )}
             {card.mode === 'listen-identify' && (
-              <ListenIdentifyMode key={card.item.id} item={card.item} onGrade={grade} onSkip={skipItem} />
+              <ListenIdentifyMode key={`${card.item.id}-${session!.currentIndex}`} item={card.item} onGrade={grade} onSkip={skipItem} isRelearn={card.isRelearn} />
             )}
           </>
         )}
@@ -513,10 +557,15 @@ const styles = StyleSheet.create({
 
   modeContainer:    { flex: 1 },
   card:             { backgroundColor: COLORS.surface, borderRadius: 16, padding: 24 },
-  masteryDot:       { width: 8, height: 8, borderRadius: 4, alignSelf: 'flex-end', marginBottom: 12 },
+  cardTopRow:       { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  masteryDot:       { width: 8, height: 8, borderRadius: 4, marginLeft: 'auto' },
+  relearnBadge:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.warning + '1A', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  relearnText:      { fontSize: 12, fontWeight: '700', color: COLORS.warning },
   modeTag:          { fontSize: 12, color: COLORS.textSecondary, fontWeight: '600', marginBottom: 8 },
   cardPhrase:       { fontSize: 26, fontWeight: '800', color: COLORS.text, marginBottom: 16 },
   divider:          { height: 1, backgroundColor: COLORS.border, marginBottom: 16 },
+  meaningZh:        { fontSize: 20, fontWeight: '800', color: COLORS.text, marginBottom: 12 },
+  meaningMissing:   { fontSize: 14, color: COLORS.textSecondary, fontStyle: 'italic', marginBottom: 12 },
   cardContext:      { fontSize: 15, color: COLORS.textSecondary, fontStyle: 'italic', lineHeight: 22, marginBottom: 16 },
   recallHint:       { fontSize: 13, color: COLORS.textSecondary, textAlign: 'center', marginTop: 8, marginBottom: 12 },
 

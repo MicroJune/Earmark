@@ -119,3 +119,53 @@ export function shuffle<T>(arr: T[]): T[] {
   }
   return out;
 }
+
+// ─── Fuzzy answer matching (typed production) ─────────────────────────────────
+// Exact-string matching punishes a learner for a stray comma, capital letter, or
+// single typo — none of which mean they failed to recall the phrase. We compare
+// on a normalized form and tolerate a small edit distance, returning a graded
+// match so a near-miss can be scheduled as "hard" rather than "again".
+
+/** Lowercase, strip surrounding punctuation, collapse internal whitespace. */
+function normalizeAnswer(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[.,!?;:"'`()\[\]{}…—–-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Levenshtein edit distance between two strings. */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+export type AnswerMatch = 'exact' | 'close' | 'wrong';
+
+/**
+ * Compares a typed answer against the target.
+ * - 'exact': normalized forms match → grade 'good'.
+ * - 'close': within a small edit distance (1 for short answers, 2 for longer)
+ *   → grade 'hard'. Catches typos and minor spelling slips.
+ * - 'wrong': otherwise → grade 'again'.
+ */
+export function matchAnswer(input: string, target: string): AnswerMatch {
+  const a = normalizeAnswer(input);
+  const b = normalizeAnswer(target);
+  if (!a) return 'wrong';
+  if (a === b) return 'exact';
+  const tolerance = b.length > 8 ? 2 : 1;
+  return editDistance(a, b) <= tolerance ? 'close' : 'wrong';
+}
