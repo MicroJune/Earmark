@@ -10,6 +10,7 @@ import { setupAudioMode } from './src/services/audio';
 import { checkForUpdate, reloadApp } from './src/services/updates';
 import { AppNavigation } from './src/navigation';
 import { COLORS } from './src/constants/colors';
+import { initLogger, log } from './src/utils/logger';
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -17,11 +18,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      // First: arm crash capture + freeze watchdog and report whether the
+      // PREVIOUS session ended abnormally. Must run before anything else so a
+      // crash during init is caught.
+      await initLogger();
       try {
         await getDb();        // initialises DB and runs all migrations
         await recoverInterruptedTranscriptions(); // unstick files if the app died mid-transcription
         await setupAudioMode(); // enables background + silent-mode playback
       } catch (e) {
+        log.error('startup', 'app init failed', e);
         setError(e instanceof Error ? e.message : 'Failed to initialise app');
       } finally {
         setReady(true);
