@@ -33,24 +33,24 @@ function inferType(text: string): SavedItemType {
 }
 
 function SuggestionCard({
-  suggestion, saved, onSave, onJump,
+  suggestion, saved, onToggleSave, onJump,
 }: {
   suggestion: PhraseSuggestion;
   saved: boolean;
-  onSave: () => void;
+  onToggleSave: () => void;
   onJump: () => void;
 }) {
   return (
     <View style={styles.card}>
       <View style={styles.cardTop}>
         <Text style={styles.phrase}>{suggestion.text}</Text>
+        {/* Tappable both ways: tap to save, tap again to undo (un-save). */}
         <Pressable
           style={[styles.saveBtn, saved && styles.savedBtn]}
-          onPress={onSave}
-          disabled={saved}
+          onPress={onToggleSave}
         >
           <Ionicons name={saved ? 'checkmark' : 'bookmark-outline'} size={14} color={saved ? COLORS.success : '#fff'} />
-          <Text style={[styles.saveBtnText, saved && styles.savedBtnText]}>{saved ? 'Saved' : 'Save'}</Text>
+          <Text style={[styles.saveBtnText, saved && styles.savedBtnText]}>{saved ? '已保存' : 'Save'}</Text>
         </Pressable>
       </View>
       <Text style={styles.reason}>{suggestion.reason}</Text>
@@ -83,6 +83,7 @@ export default function SuggestionsModal({
 
   const libraryItems = useLibraryStore(s => s.items);
   const addItem = useLibraryStore(s => s.addItem);
+  const removeItem = useLibraryStore(s => s.removeItem);
 
   // Phrases the user already saved for this file — shown as "Saved" and
   // excluded when asking the AI for more.
@@ -147,7 +148,20 @@ export default function SuggestionsModal({
     void setSuggestionDensity(d);
   };
 
-  const handleSave = async (s: PhraseSuggestion) => {
+  const handleToggleSave = async (s: PhraseSuggestion) => {
+    // Already saved → undo the save by removing the matching library item.
+    if (savedTexts.has(s.text)) {
+      const match = libraryItems.find(
+        i => i.audioFileId === audioFileId && i.text.toLowerCase() === s.text.toLowerCase()
+      );
+      try {
+        if (match) await removeItem(match);
+        setSavedTexts(prev => { const next = new Set(prev); next.delete(s.text); return next; });
+      } catch {
+        // removeItem surfaces its own DB errors via store error state
+      }
+      return;
+    }
     try {
       await addItem({
         audioFileId,
@@ -224,7 +238,7 @@ export default function SuggestionsModal({
               <SuggestionCard
                 suggestion={item}
                 saved={savedTexts.has(item.text)}
-                onSave={() => handleSave(item)}
+                onToggleSave={() => handleToggleSave(item)}
                 onJump={() => handleJump(item)}
               />
             )}
