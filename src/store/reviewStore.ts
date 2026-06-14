@@ -28,6 +28,9 @@ function pickMode(item: SavedItem, index: number): ReviewMode {
   }
 }
 
+// Max times one item can be requeued for in-session relearning after 'again'.
+const MAX_RELEARNS = 2;
+
 function buildQueue(items: SavedItem[]): ReviewCard[] {
   return shuffle(items).map((item, i) => ({ item, mode: pickMode(item, i) }));
 }
@@ -89,12 +92,31 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
     set(state => {
       if (!state.session) return {};
       const positive = isPositive(grade);
+
+      // In-session relearning: a lapsed item ('again') goes back to the end of
+      // the queue so it's re-tested before the session ends — the single most
+      // effective short-term reinforcement after a miss. Capped at MAX_RELEARNS
+      // so a persistently-failed item can't loop forever.
+      const queue = [...state.session.queue];
+      if (grade === 'again' && (card.relearns ?? 0) < MAX_RELEARNS) {
+        queue.push({ ...card, relearns: (card.relearns ?? 0) + 1, isRelearn: true });
+      }
+
+      // Only the first encounter of an item counts toward the session tally, so
+      // requeued relearns don't inflate the score.
+      const counts = card.isRelearn
+        ? {}
+        : {
+            correctCount: state.session.correctCount + (positive ? 1 : 0),
+            incorrectCount: state.session.incorrectCount + (positive ? 0 : 1),
+          };
+
       return {
         session: {
           ...state.session,
+          queue,
           currentIndex: state.session.currentIndex + 1,
-          correctCount: state.session.correctCount + (positive ? 1 : 0),
-          incorrectCount: state.session.incorrectCount + (positive ? 0 : 1),
+          ...counts,
         },
       };
     });

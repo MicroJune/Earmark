@@ -130,6 +130,11 @@ export type ReviewMode = 'flashcard' | 'fill-in-blank' | 'listen-identify';
 export interface ReviewCard {
   item: SavedItem;
   mode: ReviewMode;
+  // In-session relearning: a card answered 'again' is requeued to the end so the
+  // user re-tests it before leaving. `relearns` caps the requeues; `isRelearn`
+  // marks a requeued copy (shown with a "再练一次" badge, excluded from tally).
+  relearns?: number;
+  isRelearn?: boolean;
 }
 
 export interface ReviewSession {
