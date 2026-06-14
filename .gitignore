@@ -45,3 +45,5 @@ yarn-error.*
 
 # Metro debug log (dev tooling)
 metro-debug.log
+expo-console.log
+*-console.log
