@@ -7,7 +7,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { HomeStackParamList, Segment, Word, SavedItemType, PlaybackRate } from '../types';
+import type { HomeStackParamList, Segment, Word, SavedItemType, PlaybackRate, AudioFile } from '../types';
 import { type Palette } from '../constants/colors';
 import { useTheme } from '../theme/ThemeProvider';
 import { usePlaybackStore, type RepeatMode } from '../store/playbackStore';
@@ -15,7 +15,7 @@ import { useAudioFilesStore } from '../store/audioFilesStore';
 import { useLibraryStore } from '../store/libraryStore';
 import {
   loadAudio, unloadAudio, play, pause, seekTo,
-  seekToWord as audioSeekToWord, setPlaybackRate, skip, setOnTrackEnd,
+  seekToWord as audioSeekToWord, setPlaybackRate, setOnTrackEnd,
 } from '../services/audio';
 import { formatPosition, formatDuration } from '../utils/timeFormat';
 import { sortFiles } from '../utils/fileSort';
@@ -159,7 +159,15 @@ function SeekBar({ position, duration }: { position: number; duration: number })
 
 // ─── Audio player bar ─────────────────────────────────────────────────────────
 
-function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?: () => void }) {
+function AudioPlayerBar({
+  audioFileId, onPlay, onPrevFile, onNextFile, canNavigateFiles,
+}: {
+  audioFileId: number;
+  onPlay?: () => void;
+  onPrevFile: () => void;
+  onNextFile: () => void;
+  canNavigateFiles: boolean;
+}) {
   const c = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
   const isPlaying      = usePlaybackStore(s => s.isPlaying);
@@ -175,12 +183,18 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
     setPlaybackRate(next);
   };
 
-  // off → one (repeat this file) → all (play category in order) → off
+  // off → one (repeat this file) → all (play category in order) → off.
+  // Distinct icon + label per state so the meaning is obvious at a glance.
   const cycleRepeat = () => {
     const next: RepeatMode = repeatMode === 'off' ? 'one' : repeatMode === 'one' ? 'all' : 'off';
     setRepeatMode(next);
   };
   const repeatActive = repeatMode !== 'off';
+  const repeatMeta = {
+    off: { icon: 'repeat' as const, label: '不循环' },
+    one: { icon: 'repeat' as const, label: '单篇' },
+    all: { icon: 'play-forward' as const, label: '连播' },
+  }[repeatMode];
 
   return (
     <View style={styles.playerBar}>
@@ -202,9 +216,13 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
         </View>
 
         <View style={styles.transport}>
-          <Pressable style={styles.skipBtn} onPress={() => skip(-10)} hitSlop={6}>
-            <Ionicons name="play-back" size={20} color={c.text} />
-            <Text style={styles.skipLabel}>10</Text>
+          <Pressable
+            style={styles.skipBtn}
+            onPress={onPrevFile}
+            disabled={!canNavigateFiles}
+            hitSlop={6}
+          >
+            <Ionicons name="play-skip-back" size={22} color={canNavigateFiles ? c.text : c.textSecondary} />
           </Pressable>
           <Pressable
             style={styles.playBtn}
@@ -218,9 +236,13 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
               style={isPlaying ? undefined : { marginLeft: 3 }}
             />
           </Pressable>
-          <Pressable style={styles.skipBtn} onPress={() => skip(10)} hitSlop={6}>
-            <Ionicons name="play-forward" size={20} color={c.text} />
-            <Text style={styles.skipLabel}>10</Text>
+          <Pressable
+            style={styles.skipBtn}
+            onPress={onNextFile}
+            disabled={!canNavigateFiles}
+            hitSlop={6}
+          >
+            <Ionicons name="play-skip-forward" size={22} color={canNavigateFiles ? c.text : c.textSecondary} />
           </Pressable>
         </View>
 
@@ -229,9 +251,10 @@ function AudioPlayerBar({ audioFileId, onPlay }: { audioFileId: number; onPlay?:
             style={[styles.sideChip, repeatActive && styles.sideChipActive]}
             onPress={cycleRepeat}
           >
-            <Ionicons name="repeat" size={16} color={repeatActive ? c.primary : c.textSecondary} />
-            {repeatMode === 'one' && <Text style={styles.repeatBadge}>1</Text>}
-            {repeatMode === 'all' && <Text style={styles.repeatBadge}>∞</Text>}
+            <Ionicons name={repeatMeta.icon} size={15} color={repeatActive ? c.primary : c.textSecondary} />
+            <Text style={[styles.repeatLabel, { color: repeatActive ? c.primary : c.textSecondary }]}>
+              {repeatMeta.label}
+            </Text>
           </Pressable>
         </View>
       </View>
@@ -283,7 +306,7 @@ function SelectionBar({ audioFileId }: { audioFileId: number }) {
 
   const handleSave = async (type: SavedItemType) => {
     try {
-      await addItem({
+      const { duplicate } = await addItem({
         audioFileId,
         text: selectedText,
         contextSentence,
@@ -293,6 +316,9 @@ function SelectionBar({ audioFileId }: { audioFileId: number }) {
         mastery: 'new',
       });
       clearSelection();
+      if (duplicate) {
+        Alert.alert('已在词库中', '这条短语之前已经保存过了,没有重复添加。');
+      }
     } catch (e) {
       Alert.alert('Save failed', e instanceof Error ? e.message : 'Failed to save item');
     }
@@ -380,6 +406,41 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     void getFileSortMode().then(m => { sortModeRef.current = m; });
   }, []);
 
+  // The current category's ready files, in the order the category screen shows.
+  // Shared by the prev/next buttons and the auto-advance ('all') handler.
+  const orderedCategoryFiles = useCallback((): AudioFile[] => {
+    const cat = audioFile?.categoryId ?? null;
+    const inCat = audioFiles.filter(f => f.categoryId === cat && f.status === 'ready');
+    const sizes = new Map<number, number>();
+    if (sortModeRef.current === 'size') {
+      for (const f of inCat) {
+        try { sizes.set(f.id, f.uri ? getAudioFileSize(f.uri) : 0); } catch { sizes.set(f.id, 0); }
+      }
+    }
+    return sortFiles(inCat, sortModeRef.current, sizes);
+  }, [audioFile?.categoryId, audioFiles]);
+
+  // Manual previous/next file. Wraps around (it's a loop) and auto-plays the
+  // file it lands on — same as when a track ends in 'all' mode.
+  const goToAdjacentFile = useCallback((dir: 1 | -1) => {
+    const ordered = orderedCategoryFiles();
+    if (ordered.length <= 1) return;
+    const idx = ordered.findIndex(f => f.id === audioFileId);
+    if (idx < 0) return;
+    const target = ordered[(idx + dir + ordered.length) % ordered.length];
+    if (target.id === audioFileId) return;
+    autoPlayRef.current = true;
+    navigation.setParams({ audioFileId: target.id });
+  }, [orderedCategoryFiles, audioFileId, navigation]);
+
+  // Cheap check (no file-size I/O) for whether prev/next is even possible.
+  const canNavigateFiles = useMemo(
+    () => audioFiles.filter(
+      f => (f.categoryId ?? null) === (audioFile?.categoryId ?? null) && f.status === 'ready'
+    ).length > 1,
+    [audioFiles, audioFile?.categoryId],
+  );
+
   // On return to the foreground, recompute the highlight from where playback
   // actually reached while the screen was locked (it was frozen there to avoid
   // background churn). The auto-scroll effect then snaps to it (big jump → no
@@ -400,16 +461,8 @@ export default function ContentViewScreen({ route, navigation }: Props) {
   useEffect(() => {
     setOnTrackEnd(() => {
       if (usePlaybackStore.getState().repeatMode !== 'all') return;
-      const cat = audioFile?.categoryId ?? null;
-      const inCat = audioFiles.filter(f => f.categoryId === cat && f.status === 'ready');
-      if (inCat.length === 0) return;
-      const sizes = new Map<number, number>();
-      if (sortModeRef.current === 'size') {
-        for (const f of inCat) {
-          try { sizes.set(f.id, f.uri ? getAudioFileSize(f.uri) : 0); } catch { sizes.set(f.id, 0); }
-        }
-      }
-      const ordered = sortFiles(inCat, sortModeRef.current, sizes);
+      const ordered = orderedCategoryFiles();
+      if (ordered.length === 0) return;
       const idx = ordered.findIndex(f => f.id === audioFileId);
       if (idx < 0) return;
       const next = ordered[(idx + 1) % ordered.length];
@@ -422,7 +475,7 @@ export default function ContentViewScreen({ route, navigation }: Props) {
       navigation.setParams({ audioFileId: next.id });
     });
     return () => setOnTrackEnd(null);
-  }, [audioFileId, audioFile?.categoryId, audioFiles, navigation]);
+  }, [audioFileId, orderedCategoryFiles, navigation]);
 
   // Prepare flat list data — recomputed only when transcript changes
   const segmentItems = useMemo<SegmentItem[]>(() => {
@@ -586,7 +639,13 @@ export default function ContentViewScreen({ route, navigation }: Props) {
 
       {/* Audio player */}
       <View style={[styles.playerContainer, { paddingBottom: insets.bottom }]}>
-        <AudioPlayerBar audioFileId={audioFileId} onPlay={recenterActiveSegment} />
+        <AudioPlayerBar
+          audioFileId={audioFileId}
+          onPlay={recenterActiveSegment}
+          onPrevFile={() => goToAdjacentFile(-1)}
+          onNextFile={() => goToAdjacentFile(1)}
+          canNavigateFiles={canNavigateFiles}
+        />
       </View>
 
       <SuggestionsModal
@@ -653,11 +712,10 @@ function makeStyles(c: Palette) {
   sideChip:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, minWidth: 56, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: c.primaryLight },
   sideChipActive:   { borderWidth: 1.5, borderColor: c.primary },
   rateText:         { fontSize: 13, fontWeight: '700', color: c.primary, fontVariant: ['tabular-nums'] },
-  repeatBadge:      { fontSize: 11, fontWeight: '700', color: c.primary },
+  repeatLabel:      { fontSize: 12, fontWeight: '700' },
 
   transport:        { flexDirection: 'row', alignItems: 'center', gap: 24 },
   skipBtn:          { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
-  skipLabel:        { position: 'absolute', bottom: 1, fontSize: 9, fontWeight: '700', color: c.textSecondary },
   playBtn:          { width: 56, height: 56, borderRadius: 28, backgroundColor: c.primary, justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: c.primary, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   });
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SavedItem, ReviewMode, ReviewCard, ReviewSession, ReviewGrade } from '../types';
+import type { SavedItem, ReviewMode, ReviewCard, ReviewSession, ReviewSessionKind, ReviewGrade } from '../types';
 import { getDueForReview } from '../db/queries/savedItems';
 import { logReview } from '../db/queries/reviewLog';
 import { useLibraryStore } from './libraryStore';
@@ -28,11 +28,20 @@ function pickMode(item: SavedItem, index: number): ReviewMode {
   }
 }
 
+// Recall-check mode for a recently-mastered item: recognition (flashcard) or
+// listen-identify — never fill-in-blank. The point is a quick "do I still know
+// this?", not laborious typing of every mastered phrase.
+function pickRecallMode(item: SavedItem, index: number): ReviewMode {
+  const hasAudio = item.clipUri !== null || item.audioFileId !== null;
+  return hasAudio && index % 2 === 1 ? 'listen-identify' : 'flashcard';
+}
+
 // Max times one item can be requeued for in-session relearning after 'again'.
 const MAX_RELEARNS = 2;
 
-function buildQueue(items: SavedItem[]): ReviewCard[] {
-  return shuffle(items).map((item, i) => ({ item, mode: pickMode(item, i) }));
+function buildQueue(items: SavedItem[], kind: ReviewSessionKind): ReviewCard[] {
+  const choose = kind === 'recent-mastered' ? pickRecallMode : pickMode;
+  return shuffle(items).map((item, i) => ({ item, mode: choose(item, i) }));
 }
 
 // Maps a graded answer to a correct/incorrect tally for session stats.
@@ -45,11 +54,17 @@ interface ReviewStore {
   isLoading: boolean;
   error: string | null;
 
-  // Start a smart-mixed session. If items aren't provided, loads all due items.
-  startSession: (items?: SavedItem[]) => Promise<void>;
+  // Start a session. If items aren't provided, loads all due items. `kind`
+  // selects the daily mix ('due', default) or the recently-mastered recall
+  // check ('recent-mastered'), which uses recognition modes + a demote action.
+  startSession: (items?: SavedItem[], kind?: ReviewSessionKind) => Promise<void>;
 
   // Grade the current card (SM-2), persist, and advance.
   grade: (grade: ReviewGrade) => Promise<void>;
+
+  // "打回 Learning" the current card (recent-mastered sessions): demote it out of
+  // mastered and advance, without requeuing it.
+  demoteCurrent: () => Promise<void>;
 
   skipItem: () => void;
   endSession: () => void;
@@ -60,16 +75,17 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
   isLoading: false,
   error: null,
 
-  startSession: async (items) => {
+  startSession: async (items, kind = 'due') => {
     set({ isLoading: true, error: null });
     try {
       const source = items ?? (await getDueForReview());
       set({
         session: {
-          queue: buildQueue(source),
+          queue: buildQueue(source, kind),
           currentIndex: 0,
           correctCount: 0,
           incorrectCount: 0,
+          kind,
         },
       });
     } catch (e) {
@@ -117,6 +133,27 @@ export const useReviewStore = create<ReviewStore>((set, get) => ({
           queue,
           currentIndex: state.session.currentIndex + 1,
           ...counts,
+        },
+      };
+    });
+  },
+
+  demoteCurrent: async () => {
+    const { session } = get();
+    if (!session) return;
+    const card = session.queue[session.currentIndex];
+    if (!card) return;
+
+    await useLibraryStore.getState().demote(card.item.id);
+    void logReview(card.item.id, false); // counts as a miss for the streak/stats
+
+    set(state => {
+      if (!state.session) return {};
+      return {
+        session: {
+          ...state.session,
+          currentIndex: state.session.currentIndex + 1,
+          incorrectCount: state.session.incorrectCount + (card.isRelearn ? 0 : 1),
         },
       };
     });

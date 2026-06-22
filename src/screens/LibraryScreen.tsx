@@ -1,8 +1,13 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
   View, Text, FlatList, Pressable, TextInput,
   StyleSheet, Alert, Modal, useWindowDimensions,
 } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle, useAnimatedReaction,
+  withTiming, withSpring, runOnJS, Easing,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { Palette } from '../constants/colors';
@@ -41,6 +46,28 @@ const MASTERY_OPTIONS: Array<{ value: MasteryLevel; label: string }> = [
 ];
 
 type Anchor = { x: number; y: number; width: number; height: number };
+type SwipeSide = 'left' | 'right';
+type MasterySwipeTargets = { left: MasteryLevel; right: MasteryLevel };
+type MasterySwipePreview = MasterySwipeTargets & { active: SwipeSide | null };
+
+const SWIPE_THRESHOLD = 88;          // px past which the swipe commits the tag
+const SWIPE_PREVIEW_ACTIVATE = 24;   // px to light up a side's preview
+const SWIPE_PREVIEW_CLEAR = 8;       // px back inside which the preview clears
+// Settle/return spring — clamped so it never overshoots (no recoil/bounce).
+const RETURN_SPRING = { damping: 22, stiffness: 190, overshootClamping: true } as const;
+
+const masteryLabel = (m: MasteryLevel) => MASTERY_OPTIONS.find(o => o.value === m)?.label ?? m;
+
+function getSwipeTargets(current: MasteryLevel): MasterySwipeTargets {
+  switch (current) {
+    case 'new':
+      return { left: 'learning', right: 'mastered' };
+    case 'learning':
+      return { left: 'new', right: 'mastered' };
+    case 'mastered':
+      return { left: 'new', right: 'learning' };
+  }
+}
 
 // ─── Mastery dropdown ─────────────────────────────────────────────────────────
 // Small popover anchored under (or above) the tapped mastery badge. Replaces the
@@ -107,13 +134,16 @@ function FilterChip<T extends string>({
 // ─── Saved item card ──────────────────────────────────────────────────────────
 
 function SavedItemCard({
-  item, onPress, onDelete, onOpenMastery, onLongPress, selectionMode, selected, onToggleSelect,
+  item, onPress, onDelete, onOpenMastery, onStartSelect,
+  onSwipeMastery, onSwipePreviewChange, selectionMode, selected, onToggleSelect,
 }: {
   item: SavedItem;
   onPress: () => void;
   onDelete: () => void;
   onOpenMastery: (anchor: Anchor) => void;
-  onLongPress: () => void;
+  onStartSelect: () => void;
+  onSwipeMastery: (item: SavedItem, mastery: MasteryLevel) => void;
+  onSwipePreviewChange: (preview: MasterySwipePreview | null) => void;
   selectionMode: boolean;
   selected: boolean;
   onToggleSelect: () => void;
@@ -121,63 +151,151 @@ function SavedItemCard({
   const c = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
   const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
+  const swipeTargets = useMemo(() => getSwipeTargets(item.mastery), [item.mastery]);
+  const { width } = useWindowDimensions();
+  const translateX = useSharedValue(0);
+  const dragging = useSharedValue(false);
   const badgeRef = useRef<View>(null);
+
+  // The preview overlay lives in the parent (one shared band at the screen
+  // edges). Only the actively-swiped card writes to it. These callbacks are
+  // kept stable so the memoized gesture survives the parent's re-renders that
+  // those very writes trigger — otherwise GestureDetector would re-attach the
+  // native gesture mid-swipe and cancel the drag.
+  const showPreview = useCallback(
+    (side: SwipeSide | null) => onSwipePreviewChange({ ...swipeTargets, active: side }),
+    [onSwipePreviewChange, swipeTargets],
+  );
+  const clearPreview = useCallback(() => onSwipePreviewChange(null), [onSwipePreviewChange]);
+
+  // Light up the active side as the card crosses the preview thresholds, with a
+  // dead band for hysteresis. Fires the JS callback only when the side actually
+  // changes — never per frame.
+  useAnimatedReaction(
+    () => {
+      if (!dragging.value) return undefined; // ignore the return/settle animation
+      const x = translateX.value;
+      if (x <= -SWIPE_PREVIEW_ACTIVATE) return 'left' as SwipeSide;
+      if (x >= SWIPE_PREVIEW_ACTIVATE) return 'right' as SwipeSide;
+      if (x > -SWIPE_PREVIEW_CLEAR && x < SWIPE_PREVIEW_CLEAR) return null;
+      return undefined; // inside the hysteresis band — leave the side as-is
+    },
+    (current, previous) => {
+      if (current !== undefined && current !== previous) runOnJS(showPreview)(current);
+    },
+  );
+
+  const pan = useMemo(
+    () => Gesture.Pan()
+      .enabled(!selectionMode)
+      .activeOffsetX([-14, 14]) // claim the touch only on a clear horizontal drag
+      .failOffsetY([-12, 12])   // vertical intent → yield to the list's scroll
+      .onStart(() => {
+        dragging.value = true;
+        runOnJS(showPreview)(null);
+      })
+      .onUpdate(e => {
+        translateX.value = e.translationX; // 1:1 finger-follow — no clamp, no wall
+      })
+      .onEnd(e => {
+        const t = e.translationX;
+        dragging.value = false; // stop driving the preview during the return anim
+        runOnJS(clearPreview)();
+        if (t <= -SWIPE_THRESHOLD || t >= SWIPE_THRESHOLD) {
+          const dir = t < 0 ? -1 : 1;
+          const target = dir < 0 ? swipeTargets.left : swipeTargets.right;
+          // Fly out toward the swiped side, then settle back with the new tag
+          // applied (or the row is filtered out and unmounts — no snap either way).
+          translateX.value = withTiming(
+            dir * width,
+            { duration: 190, easing: Easing.out(Easing.cubic) },
+            finished => {
+              if (finished) {
+                runOnJS(onSwipeMastery)(item, target);
+                translateX.value = withSpring(0, RETURN_SPRING);
+              }
+            },
+          );
+        } else {
+          translateX.value = withSpring(0, RETURN_SPRING); // below threshold — glide home
+        }
+      })
+      .onFinalize(() => {
+        dragging.value = false;
+        runOnJS(clearPreview)(); // safety net if the gesture was cancelled
+      }),
+    [selectionMode, swipeTargets, width, item, showPreview, clearPreview, onSwipeMastery, translateX, dragging],
+  );
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+    zIndex: translateX.value !== 0 ? 3 : 0,
+  }));
+
   const openMenu = () => {
-    badgeRef.current?.measureInWindow((x, y, width, height) =>
-      onOpenMastery({ x, y, width, height })
+    badgeRef.current?.measureInWindow((x, y, w, h) =>
+      onOpenMastery({ x, y, width: w, height: h })
     );
   };
 
   return (
-    <Pressable
-      style={[styles.card, selected && styles.cardSelected]}
-      onPress={selectionMode ? onToggleSelect : onPress}
-      onLongPress={onLongPress}
-    >
-      <View style={styles.cardTop}>
-        {selectionMode && (
-          <Ionicons
-            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-            size={20}
-            color={selected ? c.primary : c.textSecondary}
-            style={styles.selectDot}
-          />
-        )}
-        <Text style={styles.cardText}>{item.text}</Text>
-        <View style={styles.cardTopIcons}>
-          {item.enrichment && (
-            <Ionicons name="sparkles" size={13} color={c.primary} />
-          )}
-          {!selectionMode && (
-            <Pressable onPress={onDelete} hitSlop={8}>
-              <Ionicons name="trash-outline" size={16} color={c.textSecondary} />
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <Text style={styles.cardContext} numberOfLines={2}>"{item.contextSentence}"</Text>
-
-      <View style={styles.cardBottom}>
-        <View style={styles.typeBadge}>
-          <Text style={styles.typeBadgeText}>{item.type}</Text>
-        </View>
-        <Text style={styles.cardDate}>{formatRelativeDate(item.dateAdded)}</Text>
-        <Text style={styles.nextReview}>{formatNextReview(item.nextReview)}</Text>
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[styles.cardMotion, animatedStyle]}>
         <Pressable
-          ref={badgeRef}
-          style={[styles.masteryBadge, { backgroundColor: masteryColor[item.mastery] + '22' }]}
-          onPress={openMenu}
-          disabled={selectionMode}
-          hitSlop={6}
+          style={[styles.card, selected && styles.cardSelected]}
+          onPress={selectionMode ? onToggleSelect : onPress}
         >
-          <Text style={[styles.masteryText, { color: masteryColor[item.mastery] }]}>
-            {item.mastery}
-          </Text>
-          <Ionicons name="chevron-down" size={12} color={masteryColor[item.mastery]} />
+        <View style={styles.cardTop}>
+          {selectionMode && (
+            <Ionicons
+              name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+              size={20}
+              color={selected ? c.primary : c.textSecondary}
+              style={styles.selectDot}
+            />
+          )}
+          <Text style={styles.cardText}>{item.text}</Text>
+          <View style={styles.cardTopIcons}>
+            {item.enrichment && (
+              <Ionicons name="sparkles" size={13} color={c.primary} />
+            )}
+            {!selectionMode && (
+              <>
+                <Pressable onPress={onStartSelect} hitSlop={8}>
+                  <Ionicons name="checkmark-circle-outline" size={16} color={c.textSecondary} />
+                </Pressable>
+                <Pressable onPress={onDelete} hitSlop={8}>
+                  <Ionicons name="trash-outline" size={16} color={c.textSecondary} />
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+
+        <Text style={styles.cardContext} numberOfLines={2}>"{item.contextSentence}"</Text>
+
+        <View style={styles.cardBottom}>
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>{item.type}</Text>
+          </View>
+          <Text style={styles.cardDate}>{formatRelativeDate(item.dateAdded)}</Text>
+          <Text style={styles.nextReview}>{formatNextReview(item.nextReview)}</Text>
+          <Pressable
+            ref={badgeRef}
+            style={[styles.masteryBadge, { backgroundColor: masteryColor[item.mastery] + '22' }]}
+            onPress={openMenu}
+            disabled={selectionMode}
+            hitSlop={6}
+          >
+            <Text style={[styles.masteryText, { color: masteryColor[item.mastery] }]}>
+              {item.mastery}
+            </Text>
+            <Ionicons name="chevron-down" size={12} color={masteryColor[item.mastery]} />
+          </Pressable>
+        </View>
         </Pressable>
-      </View>
-    </Pressable>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -216,14 +334,16 @@ export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const c = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
+  const masteryColor = useMemo(() => makeMasteryColor(c), [c]);
   const {
     items, filteredItems, filter, isLoading,
     loadItems, removeItem, removeItems, updateMastery, updateMasteryMany, setFilter, resetFilter,
   } = useLibraryStore();
   const [selectedItem, setSelectedItem] = useState<SavedItem | null>(null);
   const [masteryMenu, setMasteryMenu] = useState<{ item: SavedItem; anchor: Anchor } | null>(null);
+  const [swipePreview, setSwipePreview] = useState<MasterySwipePreview | null>(null);
 
-  // Multi-select (batch delete / batch tag). Entered via long-press on a card.
+  // Multi-select (batch delete / batch tag). Entered from the card select icon.
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [batchMasteryOpen, setBatchMasteryOpen] = useState(false);
@@ -271,8 +391,49 @@ export default function LibraryScreen() {
     exitSelection();
   };
 
+  const handleSwipeMastery = useCallback((item: SavedItem, mastery: MasteryLevel) => {
+    void updateMastery(item.id, mastery, { refilter: filter.mastery !== 'all' });
+  }, [filter.mastery, updateMastery]);
+
   return (
     <View style={[styles.screen, { paddingTop: 0 }]}>
+      {swipePreview && (
+        <View pointerEvents="none" style={styles.swipePreviewLayer}>
+          <View
+            style={[
+              styles.swipePreviewZone,
+              styles.swipePreviewLeft,
+              {
+                backgroundColor: masteryColor[swipePreview.left] + (swipePreview.active === 'left' ? '32' : '20'),
+                borderColor: masteryColor[swipePreview.left] + '66',
+                opacity: swipePreview.active === 'right' ? 0.72 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="arrow-back" size={18} color={masteryColor[swipePreview.left]} />
+            <Text style={[styles.swipePreviewText, { color: masteryColor[swipePreview.left] }]}>
+              {masteryLabel(swipePreview.left)}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.swipePreviewZone,
+              styles.swipePreviewRight,
+              {
+                backgroundColor: masteryColor[swipePreview.right] + (swipePreview.active === 'right' ? '32' : '20'),
+                borderColor: masteryColor[swipePreview.right] + '66',
+                opacity: swipePreview.active === 'left' ? 0.72 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="arrow-forward" size={18} color={masteryColor[swipePreview.right]} />
+            <Text style={[styles.swipePreviewText, { color: masteryColor[swipePreview.right] }]}>
+              {masteryLabel(swipePreview.right)}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {/* Search */}
       <View style={styles.searchRow}>
         <Ionicons name="search" size={16} color={c.textSecondary} style={styles.searchIcon} />
@@ -362,7 +523,9 @@ export default function LibraryScreen() {
             onPress={() => setSelectedItem(item)}
             onDelete={() => handleDelete(item)}
             onOpenMastery={anchor => setMasteryMenu({ item, anchor })}
-            onLongPress={() => { if (!selectionMode) enterSelection(item); }}
+            onStartSelect={() => { if (!selectionMode) enterSelection(item); }}
+            onSwipeMastery={handleSwipeMastery}
+            onSwipePreviewChange={setSwipePreview}
             selectionMode={selectionMode}
             selected={selectedIds.has(item.id)}
             onToggleSelect={() => toggleSelect(item.id)}
@@ -388,7 +551,10 @@ export default function LibraryScreen() {
         <MasteryMenu
           anchor={masteryMenu.anchor}
           current={masteryMenu.item.mastery}
-          onSelect={m => { updateMastery(masteryMenu.item.id, m); setMasteryMenu(null); }}
+          onSelect={m => {
+            updateMastery(masteryMenu.item.id, m, { refilter: filter.mastery !== 'all' });
+            setMasteryMenu(null);
+          }}
           onClose={() => setMasteryMenu(null)}
         />
       )}
@@ -447,7 +613,8 @@ function makeStyles(c: Palette) {
   sortBtn:         { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   sortText:        { fontSize: 12, color: c.primary, fontWeight: '600' },
 
-  card:            { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
+  cardMotion:      { marginBottom: 10 },
+  card:            { backgroundColor: c.surface, borderRadius: 12, padding: 14 },
   cardSelected:    { borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
   selectDot:       { marginRight: 8, marginTop: 1 },
   cardTop:         { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 },
@@ -461,6 +628,12 @@ function makeStyles(c: Palette) {
   nextReview:      { fontSize: 11, color: c.textSecondary, flex: 1 },
   masteryBadge:    { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   masteryText:     { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
+
+  swipePreviewLayer:{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  swipePreviewZone:{ width: 104, minHeight: 118, borderWidth: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
+  swipePreviewLeft:{ borderTopRightRadius: 16, borderBottomRightRadius: 16, borderLeftWidth: 0 },
+  swipePreviewRight:{ borderTopLeftRadius: 16, borderBottomLeftRadius: 16, borderRightWidth: 0 },
+  swipePreviewText:{ fontSize: 12, fontWeight: '800', textTransform: 'capitalize' },
 
   menu:            { position: 'absolute', backgroundColor: c.surface, borderRadius: 10, borderWidth: 1, borderColor: c.border, paddingVertical: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   menuItem:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 44 },

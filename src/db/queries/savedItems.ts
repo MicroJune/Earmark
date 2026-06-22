@@ -21,6 +21,7 @@ interface SavedItemRow {
   ease_factor: number;
   interval_days: number;
   review_count: number;
+  mastered_at: number | null;
 }
 
 function parseEnrichment(json: string | null): ItemEnrichment | null {
@@ -51,13 +52,14 @@ function rowToSavedItem(row: SavedItemRow): SavedItem {
     easeFactor: row.ease_factor,
     intervalDays: row.interval_days,
     reviewCount: row.review_count,
+    masteredAt: row.mastered_at,
   };
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 export async function insertSavedItem(
-  data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount'>
+  data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount' | 'masteredAt'>
 ): Promise<number> {
   const db = await getDb();
   const result = await db.runAsync(
@@ -135,6 +137,21 @@ export async function getDueForReview(now = Date.now()): Promise<SavedItem[]> {
   return rows.map(rowToSavedItem);
 }
 
+/**
+ * Items that became 'mastered' on or after `since` (unix ms) — newest first.
+ * Source for the "recently mastered" recall quiz.
+ */
+export async function getRecentlyMastered(since: number): Promise<SavedItem[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<SavedItemRow>(
+    `SELECT * FROM saved_items
+     WHERE mastery = 'mastered' AND mastered_at IS NOT NULL AND mastered_at >= ?
+     ORDER BY mastered_at DESC`,
+    [since]
+  );
+  return rows.map(rowToSavedItem);
+}
+
 export async function searchSavedItems(query: string): Promise<SavedItem[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<SavedItemRow>(
@@ -148,9 +165,15 @@ export async function searchSavedItems(query: string): Promise<SavedItem[]> {
 
 export async function updateMastery(id: number, mastery: MasteryLevel): Promise<void> {
   const db = await getDb();
+  // Stamp mastered_at the first time an item reaches 'mastered' (keep the original
+  // timestamp on re-confirmation via COALESCE); clear it whenever it leaves
+  // 'mastered'. This drives the "recently mastered" recall quiz.
   await db.runAsync(
-    'UPDATE saved_items SET mastery = ? WHERE id = ?',
-    [mastery, id]
+    `UPDATE saved_items
+       SET mastery = ?,
+           mastered_at = CASE WHEN ? = 'mastered' THEN COALESCE(mastered_at, ?) ELSE NULL END
+     WHERE id = ?`,
+    [mastery, mastery, Date.now(), id]
   );
 }
 
@@ -162,9 +185,13 @@ export async function updateSrsState(
   const db = await getDb();
   await db.runAsync(
     `UPDATE saved_items
-     SET ease_factor = ?, interval_days = ?, review_count = ?, next_review = ?, mastery = ?
+     SET ease_factor = ?, interval_days = ?, review_count = ?, next_review = ?, mastery = ?,
+         mastered_at = CASE WHEN ? = 'mastered' THEN COALESCE(mastered_at, ?) ELSE NULL END
      WHERE id = ?`,
-    [state.easeFactor, state.intervalDays, state.reviewCount, state.nextReview, state.mastery, id]
+    [
+      state.easeFactor, state.intervalDays, state.reviewCount, state.nextReview, state.mastery,
+      state.mastery, Date.now(), id,
+    ]
   );
 }
 

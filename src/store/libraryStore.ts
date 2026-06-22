@@ -14,6 +14,7 @@ import {
 } from '../db/queries/savedItems';
 import { generateEnrichment } from '../services/enrichment';
 import { getSettings } from '../services/settings';
+import { normalizeText } from '../utils/text';
 import { deleteClipFile } from '../services/clips';
 import {
   incrementPhraseCount,
@@ -78,15 +79,16 @@ interface LibraryStore {
   error: string | null;
 
   loadItems: () => Promise<void>;
-  addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount'>) => Promise<number>;
+  addItem: (data: Omit<SavedItem, 'id' | 'dateAdded' | 'nextReview' | 'enrichment' | 'clipUri' | 'sourceTitle' | 'note' | 'easeFactor' | 'intervalDays' | 'reviewCount' | 'masteredAt'>) => Promise<{ id: number; duplicate: boolean }>;
   removeItem: (item: SavedItem) => Promise<void>;
   removeItems: (items: SavedItem[]) => Promise<void>;
-  updateMastery: (id: number, mastery: MasteryLevel) => Promise<void>;
+  updateMastery: (id: number, mastery: MasteryLevel, options?: { refilter?: boolean }) => Promise<void>;
   updateMasteryMany: (ids: number[], mastery: MasteryLevel) => Promise<void>;
   editItemText: (id: number, text: string, contextSentence: string) => Promise<void>;
   setNote: (id: number, note: string) => Promise<void>;
   scheduleReview: (id: number, nextReview: number | null) => Promise<void>;
   applySrs: (id: number, state: SrsState) => Promise<void>;
+  demote: (id: number) => Promise<void>;
   enrichItem: (id: number) => Promise<SavedItem>;
   setFilter: (partial: Partial<LibraryFilter>) => void;
   resetFilter: () => void;
@@ -115,6 +117,15 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   },
 
   addItem: async (data) => {
+    // Skip near-duplicates: if the same phrase (ignoring case/punctuation) is
+    // already saved, don't create a second card. This keeps the Library clean
+    // and stops near-identical options appearing together in Review quizzes.
+    const key = normalizeText(data.text);
+    const existing = get().items.find(it => normalizeText(it.text) === key);
+    if (existing) {
+      return { id: existing.id, duplicate: true };
+    }
+
     // Denormalize the source title so it outlives the audio file row
     const sourceTitle = data.audioFileId !== null
       ? useAudioFilesStore.getState().audioFiles.find(f => f.id === data.audioFileId)?.title ?? null
@@ -135,7 +146,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       if (s.aiEnabled) return get().enrichItem(id);
     }).catch(() => {});
 
-    return id;
+    return { id, duplicate: false };
   },
 
   removeItem: async (item) => {
@@ -172,16 +183,29 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     }
   },
 
-  updateMastery: async (id, mastery) => {
+  updateMastery: async (id, mastery, options) => {
     await updateMastery(id, mastery);
-    // Update the item in place WITHOUT re-running the filter: if a mastery
-    // filter is active (e.g. "New"), re-filtering would immediately drop the
-    // card the user just re-tagged, making it vanish mid-review. Keep it where
-    // it is until the user next changes a filter or reloads.
-    set(state => ({
-      items: state.items.map(i => i.id === id ? { ...i, mastery } : i),
-      filteredItems: state.filteredItems.map(i => i.id === id ? { ...i, mastery } : i),
-    }));
+    // Mirror the DB's mastered_at maintenance in memory so Review's
+    // recently-mastered counts stay correct without a reload.
+    const stamp = (i: SavedItem): SavedItem => ({
+      ...i, mastery,
+      masteredAt: mastery === 'mastered' ? (i.masteredAt ?? Date.now()) : null,
+    });
+    set(state => {
+      const items = state.items.map(i => i.id === id ? stamp(i) : i);
+      if (options?.refilter) {
+        return { items, filteredItems: applyFilter(items, state.filter) };
+      }
+
+      // Update the item in place WITHOUT re-running the filter: if a mastery
+      // filter is active (e.g. "New"), re-filtering would immediately drop the
+      // card the user just re-tagged, making it vanish mid-review. Keep it where
+      // it is until the user next changes a filter or reloads.
+      return {
+        items,
+        filteredItems: state.filteredItems.map(i => i.id === id ? stamp(i) : i),
+      };
+    });
   },
 
   updateMasteryMany: async (ids, mastery) => {
@@ -190,9 +214,13 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     // Update in place without re-filtering — same reasoning as updateMastery:
     // a re-tagged card shouldn't vanish from under an active mastery filter.
     const idSet = new Set(ids);
+    const stamp = (i: SavedItem): SavedItem => ({
+      ...i, mastery,
+      masteredAt: mastery === 'mastered' ? (i.masteredAt ?? Date.now()) : null,
+    });
     set(state => ({
-      items: state.items.map(i => idSet.has(i.id) ? { ...i, mastery } : i),
-      filteredItems: state.filteredItems.map(i => idSet.has(i.id) ? { ...i, mastery } : i),
+      items: state.items.map(i => idSet.has(i.id) ? stamp(i) : i),
+      filteredItems: state.filteredItems.map(i => idSet.has(i.id) ? stamp(i) : i),
     }));
   },
 
@@ -229,7 +257,34 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       const items = state.items.map(i =>
         i.id === id
           ? { ...i, easeFactor: srs.easeFactor, intervalDays: srs.intervalDays,
-              reviewCount: srs.reviewCount, nextReview: srs.nextReview, mastery: srs.mastery }
+              reviewCount: srs.reviewCount, nextReview: srs.nextReview, mastery: srs.mastery,
+              masteredAt: srs.mastery === 'mastered' ? (i.masteredAt ?? Date.now()) : null }
+          : i
+      );
+      return { items, filteredItems: applyFilter(items, state.filter) };
+    });
+  },
+
+  // "记不清 → 打回 Learning" from the recently-mastered recall quiz: send the
+  // item back into the normal learning loop (short interval, lowered ease) and
+  // clear its mastered_at so it leaves the recently-mastered pool.
+  demote: async (id) => {
+    const item = get().items.find(i => i.id === id);
+    const ease = Math.max(1.3, (item?.easeFactor ?? 2.5) - 0.2);
+    const srs: SrsState = {
+      easeFactor: ease,
+      intervalDays: 1,
+      reviewCount: 1,
+      nextReview: Date.now() + 24 * 60 * 60 * 1000, // due again ~tomorrow
+      mastery: 'learning',
+    };
+    await updateSrsState(id, srs);
+    set(state => {
+      const items = state.items.map(i =>
+        i.id === id
+          ? { ...i, easeFactor: srs.easeFactor, intervalDays: srs.intervalDays,
+              reviewCount: srs.reviewCount, nextReview: srs.nextReview, mastery: srs.mastery,
+              masteredAt: null }
           : i
       );
       return { items, filteredItems: applyFilter(items, state.filter) };

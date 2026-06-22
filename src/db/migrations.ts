@@ -126,6 +126,22 @@ const migrations: Migration[] = [
       ALTER TABLE saved_items ADD COLUMN review_count  INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 10,
+    up: `
+      -- When an item became 'mastered' (unix ms). NULL = not currently mastered.
+      -- Powers the "review recently-mastered" quiz (sample items that graduated
+      -- within the last N days). Backfilled for existing masters from their last
+      -- review, falling back to when they were added, so the feature works from
+      -- day one rather than only for items mastered after this migration.
+      ALTER TABLE saved_items ADD COLUMN mastered_at INTEGER;
+      UPDATE saved_items SET mastered_at = (
+        SELECT MAX(reviewed_at) FROM review_log WHERE review_log.item_id = saved_items.id
+      ) WHERE mastery = 'mastered';
+      UPDATE saved_items SET mastered_at = date_added
+        WHERE mastery = 'mastered' AND mastered_at IS NULL;
+    `,
+  },
 ];
 
 export async function runMigrations(db: SQLiteDatabase): Promise<void> {
