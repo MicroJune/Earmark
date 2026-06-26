@@ -158,7 +158,7 @@ export default function ItemDetailModal({
   const MASTERY_CYCLE: MasteryLevel[] = ['new', 'learning', 'mastered'];
   const cycleMastery = () => {
     const next = MASTERY_CYCLE[(MASTERY_CYCLE.indexOf(live.mastery) + 1) % MASTERY_CYCLE.length];
-    void updateMastery(live.id, next);
+    void updateMastery(live.id, next, { refilter: true });
   };
 
   const startEditingNote = () => {

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { NavigationContainer, DefaultTheme, DarkTheme, type Theme } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBar } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import type { RootTabParamList, HomeStackParamList } from '../types';
@@ -11,6 +11,7 @@ import CategoryScreen from '../screens/CategoryScreen';
 import ContentViewScreen from '../screens/ContentViewScreen';
 import LibraryScreen from '../screens/LibraryScreen';
 import ReviewScreen from '../screens/ReviewScreen';
+import MiniPlayerBar from '../components/MiniPlayerBar';
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -71,6 +72,12 @@ export function AppNavigation() {
   return (
     <NavigationContainer theme={theme}>
       <Tab.Navigator
+        tabBar={(props) => (
+          <>
+            <MiniPlayerBar />
+            <BottomTabBar {...props} />
+          </>
+        )}
         screenOptions={({ route }) => ({
           headerShown: false,
           headerStyle: { backgroundColor: c.surface },

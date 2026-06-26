@@ -547,6 +547,13 @@ export default function ContentViewScreen({ route, navigation }: Props) {
     } catch {}
   }, []);
 
+  // Mark ContentView as visible so MiniPlayerBar hides itself.
+  useEffect(() => {
+    const { setContentViewVisible } = usePlaybackStore.getState();
+    setContentViewVisible(true);
+    return () => setContentViewVisible(false);
+  }, []);
+
   // Mount: load transcript + audio
   useEffect(() => {
     if (!audioFile) return;
@@ -555,6 +562,11 @@ export default function ContentViewScreen({ route, navigation }: Props) {
 
     let mounted = true;
     const store = usePlaybackStore.getState();
+    // If this exact file is already loaded in the audio service (user navigated
+    // back from another screen while audio was still playing), skip loadAudio so
+    // playback is not interrupted. We still reload the transcript because it was
+    // cleared from memory when the view last unmounted.
+    const audioAlreadyActive = store.activeAudioFileId === audioFileId;
 
     void (async () => {
       try {
@@ -563,21 +575,28 @@ export default function ContentViewScreen({ route, navigation }: Props) {
         const loaded = usePlaybackStore.getState().transcript;
         log.info('content', `transcript loaded id=${audioFileId}: ${loaded?.segments.length} segments, ${loaded?.words.length} words in ${Date.now() - t0}ms`);
         if (mounted) {
-          await loadAudio(audioFile.uri, audioFileId, audioFile.title);
-          log.info('content', `audio loaded id=${audioFileId}`);
-          if (autoPlayRef.current) {
-            // Arrived here via sequential auto-advance — start from the top
-            autoPlayRef.current = false;
-            await play();
-          } else {
-            // Resume where the user left off — unless they were at the very
-            // start or had effectively finished the episode.
-            const resumeAt = audioFile.lastPosition;
-            const nearEnd = audioFile.duration > 0 && resumeAt >= audioFile.duration * 0.98;
-            if (resumeAt > 5 && !nearEnd) {
-              await seekTo(resumeAt);
-              usePlaybackStore.getState().setPosition(resumeAt);
+          if (!audioAlreadyActive) {
+            await loadAudio(audioFile.uri, audioFileId, audioFile.title);
+            log.info('content', `audio loaded id=${audioFileId}`);
+            if (autoPlayRef.current) {
+              // Arrived here via sequential auto-advance — start from the top
+              autoPlayRef.current = false;
+              await play();
+            } else {
+              // Resume where the user left off — unless they were at the very
+              // start or had effectively finished the episode.
+              const resumeAt = audioFile.lastPosition;
+              const nearEnd = audioFile.duration > 0 && resumeAt >= audioFile.duration * 0.98;
+              if (resumeAt > 5 && !nearEnd) {
+                await seekTo(resumeAt);
+                usePlaybackStore.getState().setPosition(resumeAt);
+              }
             }
+          } else {
+            log.info('content', `audio already active id=${audioFileId}, skipping reload`);
+            // Sync the word highlight to wherever playback currently is.
+            const pos = usePlaybackStore.getState().currentPosition;
+            usePlaybackStore.getState().setPosition(pos);
           }
         }
       } catch (e) {
@@ -589,7 +608,10 @@ export default function ContentViewScreen({ route, navigation }: Props) {
 
     return () => {
       mounted = false;
-      void unloadAudio();
+      // Do NOT unloadAudio here — audio continues in the background so the
+      // MiniPlayerBar can show playback state. The audio service will stop
+      // naturally when: (a) the user taps pause in MiniPlayerBar, (b) a new
+      // file is loaded via loadAudio() which calls unloadAudio() first.
       usePlaybackStore.getState().unloadTranscript();
     };
   }, [audioFileId, audioFile?.uri, audioFile?.title, navigation]);

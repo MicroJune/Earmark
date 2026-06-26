@@ -129,10 +129,14 @@ function handlePlaybackStatus(status: AudioStatus): void {
     }
     // 'off' — stop and rewind to the start so the seek bar returns to 0 and the
     // next tap on play restarts from the top (instead of replaying from the
-    // stuck end position).
+    // stuck end position). Explicit pause() before seekTo() guards against
+    // devices where the native player auto-resumes after a seek-to-0.
     store.setIsPlaying(false);
     store.setPosition(0);
-    void seekTo(0);
+    void (async () => {
+      try { _player?.pause(); } catch {}
+      await seekTo(0);
+    })();
     if (_activeAudioFileId) {
       _lastPersistedPosition = 0;
       void updateAudioFilePosition(_activeAudioFileId, 0).catch(() => {});
@@ -183,6 +187,7 @@ export async function loadAudio(
     );
 
     _player = player;
+    _player.loop = false; // never rely on native auto-loop; repeatMode controls looping
     _activeAudioFileId = audioFileId;
     _durationPersisted = false;
     _lastPersistedPosition = 0;
@@ -193,10 +198,14 @@ export async function loadAudio(
     // playback works even if this fails on some device/launcher)
     ensureNotificationPermission();
     try {
+      // showSeekForward/showSeekBackward are omitted: they show 10-second skip
+      // buttons which is not the right UX here. expo-audio's current API does
+      // not support skip-to-next/previous track buttons, so we show only the
+      // play/pause control from the lock screen.
       player.setActiveForLockScreen(
         true,
         { title: title ?? 'Podcast', artist: 'Earmark' },
-        { showSeekForward: true, showSeekBackward: true }
+        { showSeekForward: false, showSeekBackward: false }
       );
     } catch (e) {
       log.warn('audio', 'setActiveForLockScreen FAILED', e instanceof Error ? e.message : String(e));
