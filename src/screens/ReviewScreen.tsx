@@ -14,6 +14,7 @@ import { usePreviewStore } from '../store/previewStore';
 import { playSavedItemPronunciation } from '../services/pronunciation';
 import { getReviewStats, type ReviewStats } from '../db/queries/reviewLog';
 import { shuffle, isDue, estimateMinutes, matchAnswer } from '../utils/spacedRepetition';
+import { normalizeText } from '../utils/text';
 import type { MasteryLevel, SavedItem, ReviewGrade } from '../types';
 
 // ─── Mastery badge ────────────────────────────────────────────────────────────
@@ -308,9 +309,17 @@ function ListenIdentifyMode({ item, onGrade, onSkip, isRelearn }: {
   // count) so the choice is a real discrimination, not a giveaway. We fall back
   // to any other items if there aren't enough similar ones.
   const choices = useMemo(() => {
-    const others = allItems
-      .filter((it, idx, arr) => arr.findIndex(x => x.text === it.text) === idx)
-      .filter(it => it.text.toLowerCase() !== item.text.toLowerCase());
+    // Compare by normalized text (lowercase, no punctuation, single spaces) so a
+    // near-duplicate of the answer — e.g. "Im coming down with the flu" vs
+    // "I'm coming down with the flu" (Whisper apostrophe variance) — is never
+    // offered as a distractor, and two such variants don't both appear.
+    const seen = new Set<string>([normalizeText(item.text)]);
+    const others = allItems.filter(it => {
+      const key = normalizeText(it.text);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const wordCount = (t: string) => t.trim().split(/\s+/).length;
     const targetWords = wordCount(item.text);
     const similar = others.filter(
@@ -406,12 +415,18 @@ export default function ReviewScreen() {
   const insets = useSafeAreaInsets();
   const c = useTheme();
   const styles = useMemo(() => makeStyles(c), [c]);
-  const { session, isLoading, startSession, endSession, grade, skipItem } = useReviewStore();
+  const { session, isLoading, startSession, endSession, grade, skipItem, demoteCurrent } = useReviewStore();
   const items = useLibraryStore(s => s.items);
   const loadItems = useLibraryStore(s => s.loadItems);
   const [stats, setStats] = useState<ReviewStats | null>(null);
 
   const dueCount = items.filter(i => i.mastery !== 'mastered' && isDue(i.nextReview)).length;
+  // Counts of items mastered within each recent window (cumulative).
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const recentMasteredCount = (days: number) => {
+    const since = Date.now() - days * DAY_MS;
+    return items.filter(i => i.mastery === 'mastered' && i.masteredAt != null && i.masteredAt >= since).length;
+  };
   const masteryCounts = useMemo(() => ({
     new: items.filter(i => i.mastery === 'new').length,
     learning: items.filter(i => i.mastery === 'learning').length,
@@ -444,6 +459,18 @@ export default function ReviewScreen() {
     }
   };
 
+  // Recall check over items mastered within the last `days` days — a random
+  // sample (capped) so a big backlog stays a quick check, not a marathon.
+  const handleStartRecent = async (days: number) => {
+    await useLibraryStore.getState().loadItems();
+    const since = Date.now() - days * DAY_MS;
+    const pool = useLibraryStore.getState().items.filter(
+      i => i.mastery === 'mastered' && i.masteredAt != null && i.masteredAt >= since
+    );
+    if (pool.length === 0) return;
+    await startSession(shuffle(pool).slice(0, 20), 'recent-mastered');
+  };
+
   return (
     <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
       {inSession && (
@@ -474,6 +501,12 @@ export default function ReviewScreen() {
             )}
             {card.mode === 'listen-identify' && (
               <ListenIdentifyMode key={`${card.item.id}-${session!.currentIndex}`} item={card.item} onGrade={grade} onSkip={skipItem} isRelearn={card.isRelearn} />
+            )}
+            {session!.kind === 'recent-mastered' && (
+              <Pressable style={styles.demoteBtn} onPress={() => void demoteCurrent()}>
+                <Ionicons name="arrow-undo-outline" size={15} color={c.warning} />
+                <Text style={styles.demoteText}>记不清,打回学习</Text>
+              </Pressable>
             )}
           </>
         )}
@@ -538,6 +571,36 @@ export default function ReviewScreen() {
                 <Text style={styles.statLabel}>已掌握</Text>
               </View>
             </View>
+
+            {/* Recently-mastered recall check — sample words that graduated in
+                the last N days; "记不清" demotes them back to learning. */}
+            {masteryCounts.mastered > 0 && (
+              <View style={styles.recallCard}>
+                <View style={styles.recallHeader}>
+                  <Ionicons name="ribbon-outline" size={18} color={c.primary} />
+                  <Text style={styles.recallTitle}>最近掌握抽查</Text>
+                </View>
+                <Text style={styles.recallSub}>
+                  随机抽查最近掌握的词,防止「学过就忘」 — 记不清可一键打回重新学习
+                </Text>
+                <View style={styles.recallWindows}>
+                  {[3, 7, 30].map(days => {
+                    const n = recentMasteredCount(days);
+                    return (
+                      <Pressable
+                        key={days}
+                        style={[styles.recallChip, (n === 0 || isLoading) && styles.recallChipDisabled]}
+                        onPress={() => handleStartRecent(days)}
+                        disabled={n === 0 || isLoading}
+                      >
+                        <Text style={styles.recallChipCount}>{n}</Text>
+                        <Text style={styles.recallChipDays}>近 {days} 天</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -573,6 +636,19 @@ function makeStyles(c: Palette) {
   statCard:         { flex: 1, backgroundColor: c.surface, borderRadius: 12, padding: 14, alignItems: 'center' },
   statNum:          { fontSize: 24, fontWeight: '800', color: c.text },
   statLabel:        { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+
+  recallCard:       { backgroundColor: c.surface, borderRadius: 16, padding: 16, marginTop: 16 },
+  recallHeader:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  recallTitle:      { fontSize: 15, fontWeight: '700', color: c.text },
+  recallSub:        { fontSize: 12, color: c.textSecondary, lineHeight: 18, marginTop: 4, marginBottom: 12 },
+  recallWindows:    { flexDirection: 'row', gap: 10 },
+  recallChip:       { flex: 1, alignItems: 'center', backgroundColor: c.primaryLight, borderRadius: 12, paddingVertical: 10 },
+  recallChipDisabled: { opacity: 0.4 },
+  recallChipCount:  { fontSize: 20, fontWeight: '800', color: c.primary },
+  recallChipDays:   { fontSize: 11, color: c.primary, marginTop: 1, fontWeight: '600' },
+
+  demoteBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, alignSelf: 'center', marginTop: 18, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: c.warning + '55', backgroundColor: c.warning + '14' },
+  demoteText:       { fontSize: 13, fontWeight: '600', color: c.warning },
 
   sessionHeader:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   sessionCounter:   { fontSize: 14, fontWeight: '600', color: c.textSecondary },

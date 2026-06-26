@@ -80,6 +80,7 @@ export interface SavedItem {
   easeFactor: number;      // difficulty multiplier (starts 2.5, min 1.3)
   intervalDays: number;    // current scheduling interval in days
   reviewCount: number;     // number of successful reviews so far
+  masteredAt: number | null; // unix ms when it became 'mastered'; null otherwise
 }
 
 // ─── Spaced repetition ────────────────────────────────────────────────────────
@@ -137,11 +138,17 @@ export interface ReviewCard {
   isRelearn?: boolean;
 }
 
+// 'due': the normal smart-mixed daily session.
+// 'recent-mastered': a recall check over items mastered within a recent window;
+// each card offers a "打回 Learning" demote action.
+export type ReviewSessionKind = 'due' | 'recent-mastered';
+
 export interface ReviewSession {
   queue: ReviewCard[];     // items + their per-item mode for this session
   currentIndex: number;
   correctCount: number;    // graded 'good'/'easy'
   incorrectCount: number;  // graded 'again'/'hard'
+  kind: ReviewSessionKind;
 }
 
 // ─── AI Suggestions ───────────────────────────────────────────────────────────
