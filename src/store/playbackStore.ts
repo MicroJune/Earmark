@@ -43,9 +43,15 @@ interface PlaybackStore {
   selectionEnd: number | null;    // word index
   selectionAnchor: number | null; // the word the selection started from
 
+  // True while ContentViewScreen is mounted. The MiniPlayerBar uses this to
+  // decide whether to render (it only shows when ContentView is NOT visible).
+  contentViewVisible: boolean;
+  setContentViewVisible: (visible: boolean) => void;
+
   // Actions
   loadTranscript: (audioFileId: number) => Promise<void>;
   unloadTranscript: () => void;
+  clearPlayback: () => void;
   setPosition: (position: number) => void;  // called by expo-audio every ~100ms
   setPositionQuiet: (position: number) => void; // position only — no activeWordIndex recompute (used while backgrounded)
   setIsPlaying: (isPlaying: boolean) => void;
@@ -70,6 +76,8 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   selectionStart: null,
   selectionEnd: null,
   selectionAnchor: null,
+  contentViewVisible: false,
+  setContentViewVisible: (visible) => set({ contentViewVisible: visible }),
 
   loadTranscript: async (audioFileId) => {
     const [words, segments] = await Promise.all([
@@ -93,6 +101,20 @@ export const usePlaybackStore = create<PlaybackStore>((set, get) => ({
   },
 
   unloadTranscript: () => {
+    // Preserve activeAudioFileId / isPlaying / currentPosition so the
+    // MiniPlayerBar can track ongoing background playback. Only clear
+    // transcript-specific and selection state.
+    set({
+      transcript: null,
+      activeWordIndex: -1,
+      loopSegment: null,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionAnchor: null,
+    });
+  },
+
+  clearPlayback: () => {
     set({
       activeAudioFileId: null,
       transcript: null,
